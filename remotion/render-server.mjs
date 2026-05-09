@@ -47,7 +47,7 @@ async function getBundle() {
   if (!bundleCache) {
     console.log('Bundling Remotion composition (first run, ~30s)…');
     bundleCache = await bundle({
-      entryPoint: path.join(__dirname, 'src/Root.tsx'),
+      entryPoint: path.join(__dirname, 'src/index.ts'),
       webpackOverride: (config) => config,
     });
     console.log('Bundle ready.');
@@ -56,6 +56,59 @@ async function getBundle() {
 }
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
+app.get('/', (_req, res) => res.json({ ok: true, service: 'remotion-render-server' }));
+
+// 이미지 + 자막 → MP4 (ImageSlide 컴포지션 사용)
+app.post('/render-image', async (req, res) => {
+  const {
+    imageSrc,      // base64 data URL 또는 https:// URL
+    subtitle = '',
+    duration = 5,
+    fps = 30,
+    width = 1920,
+    height = 1080,
+  } = req.body;
+
+  if (!imageSrc) return res.status(400).json({ error: 'imageSrc is required' });
+
+  const durationInFrames = Math.ceil(duration * fps);
+  const outputPath = path.join(OUTPUT_DIR, `slide-${Date.now()}.mp4`);
+
+  try {
+    const serveUrl = await getBundle();
+
+    const composition = await selectComposition({
+      serveUrl,
+      id: 'ImageSlide',
+      inputProps: { imageSrc, subtitle, duration },
+    });
+
+    composition.durationInFrames = durationInFrames;
+    composition.fps = fps;
+    composition.width = width;
+    composition.height = height;
+
+    await renderMedia({
+      composition,
+      serveUrl,
+      codec: 'h264',
+      outputLocation: outputPath,
+      inputProps: { imageSrc, subtitle, duration },
+      onProgress: ({ progress }) => {
+        process.stdout.write(`\rRendering image slide… ${(progress * 100).toFixed(1)}%`);
+      },
+    });
+
+    console.log(`\nDone → ${outputPath}`);
+    res.download(outputPath, `scene-${Date.now()}.mp4`, () => {
+      fs.unlink(outputPath, () => {});
+    });
+  } catch (err) {
+    console.error(err);
+    fs.unlink(outputPath, () => {});
+    res.status(500).json({ error: String(err) });
+  }
+});
 
 app.post('/render', async (req, res) => {
   const {

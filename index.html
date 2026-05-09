@@ -6,6 +6,7 @@
   <title>유튜브 소재 발굴 도구</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' }</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
     body { background-color: #0f172a; }
     .spinner {
@@ -900,12 +901,23 @@
 
   // ─── Gemini REST API 공통 호출 ──────────────────
   async function callGemini(prompt) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-    });
+    // 서버 프록시를 통해 호출 (브라우저 직접 호출 시 네트워크 오류 우회)
+    const useProxy = window.location.protocol === 'http:' || window.location.hostname === 'localhost';
+    let res;
+    if (useProxy) {
+      res = await fetch('/api/proxy/gemini', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      });
+    } else {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      });
+    }
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err?.error?.message || `HTTP ${res.status}`);
@@ -1375,15 +1387,22 @@ ${commentText}
     el.parentElement?.scrollTo({ top: 99999, behavior: 'smooth' });
   }
   async function geminiChat(systemPrompt, history) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: systemPrompt }] },
-        contents: history
-      })
+    const body = JSON.stringify({
+      system_instruction: { parts: [{ text: systemPrompt }] },
+      contents: history
     });
+    const useProxy = window.location.protocol === 'http:' || window.location.hostname === 'localhost';
+    let res;
+    if (useProxy) {
+      res = await fetch('/api/proxy/gemini', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body
+      });
+    } else {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+      res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+    }
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err?.error?.message || `HTTP ${res.status}`);
@@ -2036,6 +2055,73 @@ ${commentText}
     return cards;
   }
 
+  // ── 참조 캐릭터 관련 ──────────────────────────────────────────────
+  let _refCharBase64 = '';    // base64 data URL
+  let _refCharDescText = '';  // Gemini가 추출한 영문 캐릭터 묘사
+
+  window.handleRefCharUpload = async (input) => {
+    const file = input.files?.[0];
+    if (!file) return;
+
+    const statusEl = document.getElementById('refCharStatus');
+    const previewEl = document.getElementById('refCharPreview');
+    const imgEl = document.getElementById('refCharImg');
+    const descEl = document.getElementById('refCharDesc');
+    const clearBtn = document.getElementById('refCharClear');
+
+    // Read file as base64
+    const dataUrl = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = e => resolve(e.target.result);
+      reader.readAsDataURL(file);
+    });
+    _refCharBase64 = dataUrl;
+    imgEl.src = dataUrl;
+    previewEl.classList.remove('hidden');
+    statusEl.textContent = '분석 중…';
+    clearBtn.classList.remove('hidden');
+
+    // Extract base64 bytes (strip data URL prefix)
+    const b64 = dataUrl.split(',')[1];
+    const mimeType = file.type || 'image/jpeg';
+
+    try {
+      // Use Gemini Vision to analyze the character
+      const res = await fetch('/api/proxy/gemini', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              {
+                inline_data: { mime_type: mimeType, data: b64 }
+              },
+              {
+                text: 'Analyze this reference character image and write a concise English description (max 60 words) for an AI image generator. Include: gender, approximate age, hair color and style, skin tone, distinctive facial features, clothing style. Format as a comma-separated descriptor string starting with the most distinctive features. Do NOT include any copyright character names.'
+              }
+            ]
+          }]
+        }),
+      });
+      const data = await res.json();
+      const desc = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+      _refCharDescText = desc;
+      descEl.textContent = desc || '(분석 실패)';
+      statusEl.textContent = '✅ 참조 캐릭터 설정됨 — 모든 생성 프롬프트에 자동 적용';
+    } catch (e) {
+      statusEl.textContent = '분석 오류: ' + e.message;
+      _refCharDescText = '';
+    }
+  };
+
+  window.clearRefChar = () => {
+    _refCharBase64 = '';
+    _refCharDescText = '';
+    document.getElementById('refCharStatus').textContent = '미설정';
+    document.getElementById('refCharPreview').classList.add('hidden');
+    document.getElementById('refCharClear').classList.add('hidden');
+  };
+
   window.openGrokModal = () => {
     if (!GEMINI_API_KEY) {
       alert('Gemini API 키를 먼저 설정해주세요.\n🔑 API 키 설정 → Gemini API 키 입력 → 키 저장');
@@ -2063,23 +2149,90 @@ ${commentText}
 
   function renderGrokModal(cards) {
     document.getElementById('grokModalBody').innerHTML = `
-      <div class="flex items-center justify-between mb-5 gap-3 flex-wrap">
-        <p class="text-xs text-slate-400">${cards.length}개 장면 · 편집 후 순차 또는 전체 생성</p>
-        <div class="flex gap-2 flex-wrap">
-          <button onclick="exportAllCards()"
-            class="bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-bold px-3 py-2 rounded-lg transition border border-slate-600 whitespace-nowrap">
-            📥 내보내기
+      <!-- 참조 캐릭터 업로드 패널 -->
+      <div class="mb-4 p-3 bg-slate-800/60 border border-slate-700 rounded-xl">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-[11px] font-bold text-purple-300">👤 참조 캐릭터</span>
+          <label class="cursor-pointer bg-purple-800 hover:bg-purple-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition whitespace-nowrap">
+            📁 이미지 업로드
+            <input type="file" accept="image/*" class="hidden" onchange="handleRefCharUpload(this)">
+          </label>
+          <span id="refCharStatus" class="text-[11px] text-slate-400">미설정 — 모든 장면에 동일한 캐릭터를 일관되게 적용하려면 참조 이미지를 업로드하세요</span>
+          <button id="refCharClear" onclick="clearRefChar()" class="hidden text-[10px] text-red-400 hover:text-red-300 underline ml-auto">지우기</button>
+        </div>
+        <div id="refCharPreview" class="hidden mt-2 flex gap-3 items-start">
+          <img id="refCharImg" class="w-16 h-16 object-cover rounded-lg border border-purple-600/50" />
+          <div class="flex-1">
+            <p class="text-[10px] font-semibold text-purple-300 mb-1">추출된 캐릭터 설명 (모든 프롬프트에 자동 첨부)</p>
+            <p id="refCharDesc" class="text-[10px] text-slate-300 leading-relaxed break-words"></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 워크플로우 단계 표시 ── -->
+      <div class="mb-4 p-3 bg-slate-900/80 border border-slate-700 rounded-xl text-[11px] text-slate-400">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="font-bold text-slate-300">제작 순서:</span>
+          <span class="bg-violet-900/60 text-violet-300 px-2 py-0.5 rounded font-semibold">① AI 자동 채우기</span>
+          <span class="text-slate-600">→</span>
+          <span class="bg-blue-900/60 text-blue-300 px-2 py-0.5 rounded font-semibold">② 이미지 생성</span>
+          <span class="text-slate-600">→</span>
+          <span class="bg-orange-900/60 text-orange-300 px-2 py-0.5 rounded font-semibold">③ WebM 영상 내보내기</span>
+          <span class="text-slate-600">→</span>
+          <span class="bg-green-900/60 text-green-300 px-2 py-0.5 rounded font-semibold">④ 편집툴에서 편집</span>
+          <button onclick="runFullPipeline()" id="fullPipelineBtn"
+            class="ml-auto bg-gradient-to-r from-rose-600 to-orange-600 hover:from-rose-500 hover:to-orange-500
+                   text-white font-bold px-3 py-1 rounded-lg transition text-[11px] whitespace-nowrap">
+            ⚡ 전체 자동 실행
           </button>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+        <p class="text-xs text-slate-400">${cards.length}개 장면</p>
+        <div class="flex gap-2 flex-wrap">
+          <!-- ① AI 채우기 -->
+          <button onclick="autoFillAllCards()"
+            class="bg-violet-700 hover:bg-violet-600 text-white text-xs font-bold px-3 py-2 rounded-lg transition whitespace-nowrap">
+            🤖 ① 전체 AI 채우기
+          </button>
+          <!-- ② 이미지 생성 -->
           <button onclick="startSeqGeneration()"
             class="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500
-                   text-white text-xs font-bold px-4 py-2 rounded-lg transition whitespace-nowrap">
-            ▶ 순차 생성
+                   text-white text-xs font-bold px-3 py-2 rounded-lg transition whitespace-nowrap">
+            🎨 ② 순차 생성
           </button>
           <button onclick="generateAllGrokImages()"
             class="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500
-                   text-white text-xs font-bold px-4 py-2 rounded-lg transition whitespace-nowrap">
-            ⚡ 전체 생성 (${cards.length}장)
+                   text-white text-xs font-bold px-3 py-2 rounded-lg transition whitespace-nowrap">
+            ⚡ ② 전체 생성 (${cards.length}장)
           </button>
+          <!-- ③ 내보내기 드롭다운 -->
+          <div class="relative">
+            <button onclick="toggleExportMenu()"
+              class="bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-bold px-3 py-2 rounded-lg transition border border-slate-600 whitespace-nowrap flex items-center gap-1">
+              📥 ③ 내보내기 ▾
+            </button>
+            <div id="exportMenuDropdown" class="hidden absolute right-0 top-full mt-1 z-50
+                 bg-slate-800 border border-slate-600 rounded-xl shadow-2xl min-w-[200px] overflow-hidden">
+              <button onclick="exportTextScript()"
+                class="w-full text-left px-4 py-2.5 text-xs text-slate-200 hover:bg-slate-700 transition flex items-center gap-2">
+                📋 텍스트 대본 복사
+              </button>
+              <button onclick="exportImagesZip()"
+                class="w-full text-left px-4 py-2.5 text-xs text-slate-200 hover:bg-slate-700 transition flex items-center gap-2 border-t border-slate-700">
+                🖼️ 이미지 전체 ZIP
+              </button>
+              <button onclick="exportVideosZip()" id="exportVideosBtn"
+                class="w-full text-left px-4 py-2.5 text-xs text-slate-200 hover:bg-slate-700 transition flex items-center gap-2 border-t border-slate-700">
+                🎞️ 전체 영상 ZIP (WebM)
+              </button>
+              <button onclick="exportPackageZip()"
+                class="w-full text-left px-4 py-2.5 text-xs text-orange-300 hover:bg-slate-700 transition flex items-center gap-2 border-t border-slate-700 font-semibold">
+                📁 패키지 전체 내보내기
+              </button>
+            </div>
+          </div>
         </div>
       </div>
       <div class="space-y-5">
@@ -2121,20 +2274,35 @@ ${commentText}
               </div>
               <div id="grok-img-${i}" class="hidden">
                 <img id="grok-img-el-${i}" class="w-full rounded-xl border border-slate-600" alt="Generated by Gemini" />
-                <div class="mt-2">
+                <div class="mt-2 flex flex-wrap gap-2 items-center">
                   <a id="grok-dl-${i}" download="imagen-${i + 1}.png" target="_blank"
                     class="text-xs text-blue-400 hover:text-blue-300 underline font-semibold">⬇ 다운로드</a>
+                  <button id="grok-remotion-${i}" data-src="" data-idx="${i}" onclick="sendToRemotion(this)"
+                    class="hidden text-xs bg-orange-700 hover:bg-orange-600 text-white font-bold px-3 py-1 rounded-lg transition">
+                    🎞️ 영상으로 내보내기
+                  </button>
+                  <button onclick="regenWithSub(${i})"
+                    class="text-xs bg-yellow-700/60 hover:bg-yellow-600 text-yellow-200 font-bold px-3 py-1 rounded-lg transition">
+                    🔄 자막 재적용
+                  </button>
                 </div>
               </div>
               <div id="grok-err-${i}" class="hidden text-xs text-red-400 p-2 bg-red-900/20 rounded-lg"></div>
 
               <!-- 스크립트 & 자막 편집 (기본 펼침) -->
               <div class="border-t border-slate-700/60 pt-3">
-                <button onclick="toggleEditPanel(${i})"
-                  class="text-[11px] font-semibold text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5 mb-3 w-full text-left">
-                  ✏️ 스크립트 &amp; 자막 편집
-                  <span id="edit-arrow-${i}" class="ml-auto text-[10px]">▴</span>
-                </button>
+                <div class="flex items-center gap-2 mb-3">
+                  <button onclick="toggleEditPanel(${i})"
+                    class="text-[11px] font-semibold text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5 flex-1 text-left">
+                    ✏️ 스크립트 &amp; 자막 편집
+                    <span id="edit-arrow-${i}" class="text-[10px]">▴</span>
+                  </button>
+                  <button onclick="autoFillCard(${i})"
+                    id="autofill-btn-${i}"
+                    class="flex-shrink-0 text-[11px] bg-violet-700 hover:bg-violet-600 text-white font-bold px-2.5 py-1 rounded-lg transition flex items-center gap-1">
+                    🤖 AI 자동 채우기
+                  </button>
+                </div>
                 <div id="edit-panel-${i}" class="space-y-3">
                   <div>
                     <label class="block text-[11px] font-semibold text-slate-400 mb-1">🎥 컷 묘사</label>
@@ -2153,18 +2321,37 @@ ${commentText}
                     >${escHtml(card.direction)}</textarea>
                   </div>
                   <div>
-                    <label class="block text-[11px] font-semibold text-yellow-400 mb-1">💬 자막 텍스트</label>
+                    <div class="flex items-center justify-between mb-1 gap-2 flex-wrap">
+                      <label class="text-[11px] font-semibold text-yellow-400">💬 자막 텍스트</label>
+                      <div class="flex items-center gap-1.5 text-[10px]">
+                        <span id="sub-count-${i}" class="text-slate-400">0자</span>
+                        <span class="text-slate-600">/</span>
+                        <span class="text-slate-500">최대</span>
+                        <input id="sub-max-${i}" type="number" min="5" max="100" value="30"
+                          class="w-12 bg-slate-700 border border-slate-600 rounded px-1 py-0.5 text-center text-slate-200
+                                 focus:outline-none focus:border-yellow-500 text-[10px]"
+                          title="최대 글자수" oninput="updateSubCount(${i})">
+                        <span class="text-slate-500">자</span>
+                      </div>
+                    </div>
                     <textarea id="img-sub-${i}" rows="2"
+                      oninput="updateSubCount(${i})"
                       class="w-full bg-slate-800 border border-yellow-700/40 rounded-lg px-3 py-2 text-xs text-slate-300
                              resize-none focus:outline-none focus:border-yellow-500"
                       placeholder="이 장면의 자막을 입력하세요…"
                     >${escHtml(card.subtitles)}</textarea>
+                    <div class="mt-1 flex justify-between items-center">
+                      <span id="sub-warn-${i}" class="hidden text-[10px] text-red-400">⚠ 최대 글자수 초과</span>
+                      <span></span>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>`).join('')}
       </div>`;
+    // 초기 글자수 카운터 갱신
+    cards.forEach((_, i) => updateSubCount(i));
   }
 
   window.toggleEditPanel = (idx) => {
@@ -2174,7 +2361,25 @@ ${commentText}
     if (arrow) arrow.textContent = nowHidden ? '▾' : '▴';
   };
 
-  window.exportAllCards = () => {
+  // ── 내보내기 드롭다운 토글 ────────────────────────────────────────
+  window.toggleExportMenu = () => {
+    const dd = document.getElementById('exportMenuDropdown');
+    dd?.classList.toggle('hidden');
+    // 외부 클릭 시 닫기
+    setTimeout(() => {
+      const close = (e) => {
+        if (!e.target.closest('#exportMenuDropdown') && !e.target.closest('[onclick="toggleExportMenu()"]')) {
+          dd?.classList.add('hidden');
+          document.removeEventListener('click', close);
+        }
+      };
+      document.addEventListener('click', close);
+    }, 50);
+  };
+
+  // ── ① 텍스트 대본 복사 ────────────────────────────────────────────
+  window.exportTextScript = () => {
+    document.getElementById('exportMenuDropdown')?.classList.add('hidden');
     const lines = [];
     _imageCards.forEach((card, i) => {
       const prompt = document.getElementById(`img-prompt-${i}`)?.value ?? card.prompt;
@@ -2190,14 +2395,293 @@ ${commentText}
       lines.push('');
     });
     navigator.clipboard.writeText(lines.join('\n'))
-      .then(() => alert(`✅ ${_imageCards.length}개 장면 스크립트가 클립보드에 복사되었습니다.`))
+      .then(() => alert(`✅ ${_imageCards.length}개 장면 대본이 클립보드에 복사됐습니다.\n→ CapCut, Notion, Google Docs에 붙여넣기 하세요.`))
       .catch(() => alert('복사 실패 — 브라우저 권한을 확인해주세요.'));
+  };
+
+  // ── ② 이미지 전체 ZIP ─────────────────────────────────────────────
+  window.exportImagesZip = async () => {
+    document.getElementById('exportMenuDropdown')?.classList.add('hidden');
+    const zip = new JSZip();
+    let count = 0;
+    _imageCards.forEach((card, i) => {
+      const imgEl = document.getElementById(`grok-img-el-${i}`);
+      if (!imgEl || !imgEl.src || imgEl.src === window.location.href) return;
+      // data URL → base64
+      const b64 = imgEl.src.split(',')[1];
+      if (!b64) return;
+      const title = card.chapterTitle.replace(/[\\/:*?"<>|]/g, '_').slice(0, 30);
+      zip.file(`scene-${String(i + 1).padStart(2, '0')}-${title}.png`, b64, { base64: true });
+      count++;
+    });
+    if (!count) { alert('생성된 이미지가 없습니다.\n먼저 ② 이미지 생성을 실행하세요.'); return; }
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a'); a.href = url; a.download = 'scenes-images.zip'; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    alert(`✅ ${count}개 이미지 ZIP 다운로드 시작\n→ 압축 해제 후 영상 편집툴에 불러오세요.`);
+  };
+
+  // ── 공통: 이미지 → WebM Blob 렌더러 ─────────────────────────────
+  async function renderSceneToWebM(imgSrc, subText, subMax = 30, onProgress) {
+    const DURATION = 5;
+    const FPS      = 30;
+    const W        = 1920;
+    const H        = 1080;
+    const FRAMES   = DURATION * FPS;
+
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image(); im.onload = () => resolve(im); im.onerror = reject; im.src = imgSrc;
+    });
+
+    const segments  = subText ? splitSubtitleSemantic(subText, subMax) : [];
+    const segFrames = segments.length > 1 ? Math.floor(FRAMES / segments.length) : FRAMES;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    const mimeType = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
+      .find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
+    const stream   = canvas.captureStream(FPS);
+    const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
+    const chunks   = [];
+    recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+
+    const drawSubSeg = (seg) => {
+      if (!seg) return;
+      const fontSize = Math.round(H * 0.055);
+      ctx.font = `bold ${fontSize}px 'Apple SD Gothic Neo','Noto Sans KR',sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      const tw = ctx.measureText(seg).width;
+      const bPX = 24, bPY = 8;
+      const baseY = H - Math.round(H * 0.04);
+      ctx.fillStyle = 'rgba(0,0,0,0.60)';
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(W/2 - tw/2 - bPX, baseY - fontSize - bPY, tw + bPX*2, fontSize + bPY*2, 8);
+      else ctx.rect(W/2 - tw/2 - bPX, baseY - fontSize - bPY, tw + bPX*2, fontSize + bPY*2);
+      ctx.fill();
+      ctx.shadowColor = 'rgba(0,0,0,0.95)'; ctx.shadowBlur = 10;
+      ctx.lineWidth = Math.round(fontSize * 0.1); ctx.strokeStyle = '#000';
+      ctx.strokeText(seg, W/2, baseY);
+      ctx.shadowBlur = 0; ctx.fillStyle = '#fff'; ctx.fillText(seg, W/2, baseY);
+      ctx.shadowBlur = 0;
+    };
+
+    await new Promise((resolve, reject) => {
+      recorder.onstop = resolve; recorder.onerror = reject;
+      recorder.start();
+      let frame = 0;
+      const drawFrame = () => {
+        let alpha = 1;
+        if (frame < 10) alpha = frame / 10;
+        else if (frame > FRAMES - 10) alpha = (FRAMES - frame) / 10;
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+        ctx.globalAlpha = alpha; ctx.drawImage(img, 0, 0, W, H); ctx.globalAlpha = 1;
+        if (segments.length > 0) {
+          drawSubSeg(segments[Math.min(Math.floor(frame / segFrames), segments.length - 1)]);
+        }
+        if (onProgress) onProgress(frame / FRAMES);
+        frame++;
+        if (frame <= FRAMES) requestAnimationFrame(drawFrame);
+        else recorder.stop();
+      };
+      requestAnimationFrame(drawFrame);
+    });
+
+    return new Blob(chunks, { type: mimeType });
+  }
+
+  // ── ③ 전체 영상 ZIP (WebM) ────────────────────────────────────────
+  window.exportVideosZip = async () => {
+    document.getElementById('exportMenuDropdown')?.classList.add('hidden');
+    const btn = document.getElementById('exportVideosBtn');
+    const total = _imageCards.length;
+    let hasImg = false;
+    for (let i = 0; i < total; i++) {
+      const el = document.getElementById(`grok-img-el-${i}`);
+      if (el?.dataset?.rawSrc || (el?.src && el.src !== window.location.href)) { hasImg = true; break; }
+    }
+    if (!hasImg) { alert('생성된 이미지가 없습니다.\n먼저 ② 이미지 생성을 실행하세요.'); return; }
+
+    if (btn) { btn.textContent = '🎞️ 인코딩 중… (0%)'; btn.disabled = true; }
+    const zip   = new JSZip();
+    let   count = 0;
+    try {
+      for (let i = 0; i < total; i++) {
+        const imgEl  = document.getElementById(`grok-img-el-${i}`);
+        const imgSrc = imgEl?.dataset?.rawSrc || imgEl?.src;
+        if (!imgSrc || imgSrc === window.location.href) continue;
+
+        const subText = (document.getElementById(`img-sub-${i}`)?.value ?? _imageCards[i]?.subtitles ?? '').trim();
+        const subMax  = parseInt(document.getElementById(`sub-max-${i}`)?.value || '30', 10);
+        const title   = (_imageCards[i]?.chapterTitle || `장면${i+1}`).replace(/[\\/:*?"<>|]/g, '_').slice(0, 30);
+
+        if (btn) btn.textContent = `🎞️ 인코딩 중… (${i+1}/${total})`;
+        const blob = await renderSceneToWebM(imgSrc, subText, subMax);
+        zip.file(`scene-${String(i + 1).padStart(2, '0')}-${title}.webm`, blob);
+        count++;
+      }
+      if (!count) { alert('렌더링할 이미지가 없습니다.'); return; }
+      if (btn) btn.textContent = '🎞️ ZIP 압축 중…';
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(zipBlob);
+      const a   = document.createElement('a'); a.href = url; a.download = 'scenes-videos.zip'; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      alert(`✅ ${count}개 WebM 영상 ZIP 다운로드 완료!\n\n📌 다음 단계:\n1. ZIP 압축 해제\n2. CapCut / DaVinci Resolve / Premiere 실행\n3. scene-01, scene-02… 순서대로 타임라인에 드래그\n4. 최종 편집 후 내보내기`);
+    } finally {
+      if (btn) { btn.textContent = '🎞️ 전체 영상 ZIP (WebM)'; btn.disabled = false; }
+    }
+  };
+
+  // ── ④ 패키지 내보내기 (이미지 + 텍스트 + 영상) ───────────────────
+  window.exportPackageZip = async () => {
+    document.getElementById('exportMenuDropdown')?.classList.add('hidden');
+    const zip   = new JSZip();
+    const imgs  = zip.folder('images');
+    const vids  = zip.folder('videos');
+    let imgCnt = 0, vidCnt = 0;
+
+    // 텍스트 대본
+    const lines = ['유튜브 영상 제작 패키지\n' + '='.repeat(40) + '\n'];
+    _imageCards.forEach((card, i) => {
+      const prompt = document.getElementById(`img-prompt-${i}`)?.value ?? card.prompt;
+      const cut    = document.getElementById(`img-cut-${i}`)?.value   ?? card.cutDescription;
+      const dir    = document.getElementById(`img-dir-${i}`)?.value   ?? card.direction;
+      const sub    = document.getElementById(`img-sub-${i}`)?.value   ?? card.subtitles;
+      lines.push(`\n장면 ${i+1}. ${card.chapterTitle}`);
+      lines.push(`AI 프롬프트: ${prompt}`);
+      if (cut.trim()) lines.push(`컷 묘사: ${cut.trim()}`);
+      if (dir.trim()) lines.push(`촬영/편집: ${dir.trim()}`);
+      if (sub.trim()) lines.push(`자막: ${sub.trim()}`);
+    });
+    zip.file('script.txt', lines.join('\n'));
+
+    // 이미지 & 영상
+    for (let i = 0; i < _imageCards.length; i++) {
+      const imgEl  = document.getElementById(`grok-img-el-${i}`);
+      const title  = (_imageCards[i]?.chapterTitle || `장면${i+1}`).replace(/[\\/:*?"<>|]/g, '_').slice(0, 30);
+      const fname  = `scene-${String(i+1).padStart(2,'0')}-${title}`;
+      const imgSrc = imgEl?.dataset?.rawSrc || imgEl?.src;
+      if (!imgSrc || imgSrc === window.location.href) continue;
+
+      // PNG
+      const b64 = imgEl.src.split(',')[1];
+      if (b64) { imgs.file(`${fname}.png`, b64, { base64: true }); imgCnt++; }
+
+      // WebM
+      const subText = (document.getElementById(`img-sub-${i}`)?.value ?? _imageCards[i]?.subtitles ?? '').trim();
+      const subMax  = parseInt(document.getElementById(`sub-max-${i}`)?.value || '30', 10);
+      try {
+        const blob = await renderSceneToWebM(imgSrc, subText, subMax);
+        vids.file(`${fname}.webm`, blob); vidCnt++;
+      } catch (_) {}
+    }
+
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(zipBlob);
+    const a   = document.createElement('a'); a.href = url; a.download = 'youtube-package.zip'; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    alert(`✅ 패키지 내보내기 완료!\n📁 포함: 대본(script.txt) + 이미지 ${imgCnt}장 + 영상 ${vidCnt}개\n\n📌 다음: ZIP 압축 해제 → 편집툴에서 videos/ 폴더 열기`);
+  };
+
+  // ── 전체 자동 파이프라인: AI채우기 → 이미지생성 → 영상ZIP ─────────
+  window.runFullPipeline = async () => {
+    const btn = document.getElementById('fullPipelineBtn');
+    const steps = [
+      '① AI 채우기 중…',
+      '② 이미지 생성 중…',
+      '③ 영상 인코딩 중…',
+    ];
+    const ok = confirm(`전체 자동 파이프라인을 실행합니다.\n\n① AI 자동 채우기 (컷묘사·자막)\n② 전체 이미지 생성 (Gemini Imagen)\n③ 전체 영상 ZIP 내보내기 (WebM)\n\n계속하시겠습니까?`);
+    if (!ok) return;
+
+    if (btn) { btn.disabled = true; btn.textContent = steps[0]; }
+    try {
+      await autoFillAllCards();
+      if (btn) btn.textContent = steps[1];
+      await generateAllGrokImages();
+      if (btn) btn.textContent = steps[2];
+      await exportVideosZip();
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '⚡ 전체 자동 실행'; }
+    }
+  };
+
+  // ── AI 자동 채우기 (컷묘사 / 촬영편집방향 / 자막텍스트) ────────────
+  window.autoFillCard = async (idx) => {
+    const card    = _imageCards[idx];
+    if (!card) return;
+
+    const btn = document.getElementById(`autofill-btn-${idx}`);
+    const orig = btn?.textContent;
+    if (btn) { btn.textContent = '⏳ 생성 중…'; btn.disabled = true; }
+
+    const prompt = (document.getElementById(`img-prompt-${idx}`)?.value || card.prompt || '').trim();
+    const title  = card.chapterTitle || `장면 ${idx + 1}`;
+
+    try {
+      const result = await geminiChat(
+        `당신은 유튜브 영상 연출 전문가입니다. 아래 정보를 바탕으로 JSON만 출력하세요 (설명 없이, 코드블록 없이).
+형식: {"cut":"...","direction":"...","subtitle":"..."}
+
+- cut: 이 장면의 컷 묘사 (한국어, 2~3문장, 화면에 보여줄 구체적 장면)
+- direction: 촬영/편집 방향 (한국어, 1~2문장, B-roll·텍스트 오버레이·전환 효과 등)
+- subtitle: 자막 텍스트 (한국어, 15~25자, 핵심 메시지 한 문장)`,
+        [{ role: 'user', parts: [{ text: `챕터 제목: ${title}\n이미지 프롬프트(참고): ${prompt}` }] }]
+      );
+
+      // JSON 추출
+      const jsonMatch = result.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('JSON 파싱 실패');
+      const data = JSON.parse(jsonMatch[0]);
+
+      // 텍스트 영역에 채우기
+      const cutEl = document.getElementById(`img-cut-${idx}`);
+      const dirEl = document.getElementById(`img-dir-${idx}`);
+      const subEl = document.getElementById(`img-sub-${idx}`);
+      if (cutEl && data.cut)       cutEl.value = data.cut;
+      if (dirEl && data.direction) dirEl.value = data.direction;
+      if (subEl && data.subtitle) {
+        subEl.value = data.subtitle;
+        updateSubCount(idx);
+      }
+
+      // _imageCards에도 저장
+      if (data.cut)       card.cutDescription = data.cut;
+      if (data.direction) card.direction       = data.direction;
+      if (data.subtitle)  card.subtitles       = data.subtitle;
+
+      // 패널 펼치기
+      const panel = document.getElementById(`edit-panel-${idx}`);
+      const arrow = document.getElementById(`edit-arrow-${idx}`);
+      if (panel?.classList.contains('hidden')) {
+        panel.classList.remove('hidden');
+        if (arrow) arrow.textContent = '▴';
+      }
+    } catch (e) {
+      alert(`장면 ${idx + 1} 자동 채우기 실패: ${e.message}`);
+    } finally {
+      if (btn) { btn.textContent = orig; btn.disabled = false; }
+    }
+  };
+
+  window.autoFillAllCards = async () => {
+    for (let i = 0; i < _imageCards.length; i++) {
+      await autoFillCard(i);
+    }
   };
 
   window.generateSingleGrokImage = async (idx) => {
     const promptEl  = document.getElementById(`img-prompt-${idx}`);
-    const prompt    = (promptEl ? promptEl.value : '').trim() || (_imageCards[idx]?.prompt ?? '');
+    let prompt      = (promptEl ? promptEl.value : '').trim() || (_imageCards[idx]?.prompt ?? '');
     if (!prompt) return;
+
+    // 참조 캐릭터 묘사가 있으면 프롬프트 앞에 자동 첨부
+    if (_refCharDescText) {
+      prompt = `${_refCharDescText}, ${prompt}`;
+    }
 
     const cutEl    = document.getElementById(`img-cut-${idx}`);
     const cutDesc  = cutEl ? cutEl.value.trim() : (_imageCards[idx]?.cutDescription ?? '');
@@ -2226,6 +2710,7 @@ ${commentText}
           [{ role: 'user', parts: [{ text: `장면 묘사 (한국어): ${cutDesc}\n\nAI 이미지 프롬프트 (영어): ${prompt}` }] }]
         );
         const isGood = valResult.includes('✅');
+        const needsImprove = !isGood;
         valEl.className = `rounded-lg px-3 py-2 text-xs border ${
           isGood
             ? 'bg-green-900/20 border-green-700/50 text-green-300'
@@ -2233,7 +2718,15 @@ ${commentText}
               ? 'bg-yellow-900/20 border-yellow-700/50 text-yellow-300'
               : 'bg-red-900/20 border-red-700/50 text-red-300'
         }`;
-        valEl.innerHTML = valResult.split('\n').map(l => `<p>${escHtml(l)}</p>`).join('');
+        valEl.innerHTML =
+          valResult.split('\n').map(l => `<p>${escHtml(l)}</p>`).join('') +
+          (needsImprove ? `
+            <div class="mt-2 pt-2 border-t border-current/20">
+              <button onclick="improvePromptFromVal(${idx})"
+                class="bg-blue-700 hover:bg-blue-600 text-white font-bold px-3 py-1 rounded-lg transition text-[11px]">
+                ✨ 개선 제안 자동 적용
+              </button>
+            </div>` : '');
         valEl.classList.remove('hidden');
       }
 
@@ -2255,10 +2748,20 @@ ${commentText}
       const b64  = pred.bytesBase64Encoded;
       const mime = pred.mimeType || 'image/png';
       if (!b64) throw new Error('이미지 데이터 없음');
-      const src = `data:${mime};base64,${b64}`;
+      const rawSrc = `data:${mime};base64,${b64}`;
 
-      imgEl.src = src;
-      dlEl.href = src;
+      // 자막 텍스트를 Canvas로 오버레이 (Imagen은 한글 렌더링 불가)
+      const subText  = (document.getElementById(`img-sub-${idx}`)?.value ?? _imageCards[idx]?.subtitles ?? '').trim();
+      const subMax   = parseInt(document.getElementById(`sub-max-${idx}`)?.value || '30', 10);
+      const finalSrc = await overlaySubtitle(rawSrc, subText, subMax);
+
+      imgEl.src = finalSrc;
+      imgEl.dataset.rawSrc = rawSrc; // 원본 보존 (자막 재적용용)
+      dlEl.href = finalSrc;
+      dlEl.download = `imagen-${idx + 1}.png`;
+      // Remotion 연동 버튼 표시
+      const remotionBtn = document.getElementById(`grok-remotion-${idx}`);
+      if (remotionBtn) { remotionBtn.classList.remove('hidden'); remotionBtn.dataset.src = finalSrc; }
       imgWrap.classList.remove('hidden');
     } catch (e) {
       errEl.textContent = '오류: ' + e.message;
@@ -2267,6 +2770,235 @@ ${commentText}
       spinEl.classList.add('hidden');
       if (spinLabel) spinLabel.textContent = 'Gemini Imagen 생성 중…';
       if (btn) { btn.disabled = false; btn.textContent = '🎨 이미지 생성'; }
+    }
+  };
+
+  // ── 자막 의미 단위 분할 ─────────────────────────────────────────────
+  function splitSubtitleSemantic(text, maxChars) {
+    if (!text) return [];
+    const t = text.trim();
+    if (t.length <= maxChars) return [t];
+
+    const segments = [];
+    let s = t;
+
+    while (s.length > maxChars) {
+      let cut = -1;
+      const limit = Math.min(maxChars, s.length - 1);
+      const low   = Math.floor(maxChars * 0.4);
+
+      // 1순위: 문장 끝 부호
+      for (let i = limit; i >= low; i--) {
+        if ('.!?。！？\n'.includes(s[i])) { cut = i + 1; break; }
+      }
+      // 2순위: 쉼표
+      if (cut < 0) {
+        for (let i = limit; i >= low; i--) {
+          if (s[i] === ',' || s[i] === '，' || s[i] === '、') { cut = i + 1; break; }
+        }
+      }
+      // 3순위: 한국어 절 경계 (앞 2글자가 고/며/서/면/데 등인 공백)
+      if (cut < 0) {
+        for (let i = limit; i >= low; i--) {
+          if (s[i] === ' ' && i > 1) {
+            const prev = s.slice(Math.max(0, i - 3), i);
+            if (/[고며서면데]$/.test(prev) || /지만$/.test(prev) || /는데$/.test(prev)) {
+              cut = i + 1; break;
+            }
+          }
+        }
+      }
+      // 4순위: 공백
+      if (cut < 0) {
+        for (let i = limit; i >= low; i--) {
+          if (s[i] === ' ') { cut = i + 1; break; }
+        }
+      }
+      // 최후: 강제 분리
+      if (cut < 0) cut = maxChars;
+
+      segments.push(s.slice(0, cut).trim());
+      s = s.slice(cut).trim();
+    }
+    if (s) segments.push(s);
+    return segments;
+  }
+
+  // ── Canvas 자막 오버레이 (의미 단위 분할 + 다중 줄 렌더링) ──────────
+  async function overlaySubtitle(imgSrc, text, maxChars = 30) {
+    return new Promise(resolve => {
+      if (!text) { resolve(imgSrc); return; }
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width  = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+
+        const segments = splitSubtitleSemantic(text, maxChars);
+        const fontSize  = Math.round(img.height * 0.055);
+        const lineH     = Math.round(fontSize * 1.65);
+        const padBottom = Math.round(img.height * 0.04);
+        const bPadX     = 24, bPadY = 8, bRadius = 8;
+
+        ctx.font         = `bold ${fontSize}px 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif`;
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.lineWidth    = Math.round(fontSize * 0.1);
+
+        const cx = img.width / 2;
+        let baseY = img.height - padBottom;
+
+        // 아래부터 위로 세그먼트 그리기
+        for (let i = segments.length - 1; i >= 0; i--) {
+          const seg  = segments[i];
+          const tw   = ctx.measureText(seg).width;
+          const bx   = cx - tw / 2 - bPadX;
+          const bw   = tw + bPadX * 2;
+          const by   = baseY - fontSize - bPadY;
+          const bh   = fontSize + bPadY * 2;
+
+          // 반투명 배경 박스
+          ctx.fillStyle = 'rgba(0,0,0,0.60)';
+          ctx.beginPath();
+          if (ctx.roundRect) {
+            ctx.roundRect(bx, by, bw, bh, bRadius);
+          } else {
+            ctx.rect(bx, by, bw, bh);
+          }
+          ctx.fill();
+
+          // 외곽선 + 텍스트
+          ctx.shadowColor = 'rgba(0,0,0,0.95)';
+          ctx.shadowBlur  = 10;
+          ctx.strokeStyle = '#000';
+          ctx.strokeText(seg, cx, baseY);
+          ctx.shadowBlur  = 0;
+          ctx.fillStyle   = '#fff';
+          ctx.fillText(seg, cx, baseY);
+
+          baseY -= lineH;
+        }
+
+        resolve(canvas.toDataURL('image/png'));
+      };
+      img.onerror = () => resolve(imgSrc);
+      img.src = imgSrc;
+    });
+  }
+
+  // ── 자막 글자수 카운터 + 분할 미리보기 ────────────────────────────
+  window.updateSubCount = (idx) => {
+    const ta       = document.getElementById(`img-sub-${idx}`);
+    const countEl  = document.getElementById(`sub-count-${idx}`);
+    const warnEl   = document.getElementById(`sub-warn-${idx}`);
+    const maxEl    = document.getElementById(`sub-max-${idx}`);
+    if (!ta || !countEl) return;
+    const len = ta.value.length;
+    const max = parseInt(maxEl?.value || '30', 10);
+
+    countEl.textContent = `${len}자`;
+    countEl.className = len > max
+      ? 'text-red-400 font-semibold'
+      : len > max * 0.85
+        ? 'text-yellow-400'
+        : 'text-slate-400';
+
+    if (warnEl) {
+      if (len > max) {
+        const segs = splitSubtitleSemantic(ta.value, max);
+        warnEl.innerHTML = `<span class="text-orange-400 font-semibold">→ ${segs.length}개 자막으로 분할:</span> ` +
+          segs.map((s, i) =>
+            `<span class="inline-block bg-slate-700 text-slate-200 rounded px-1.5 py-0.5 mr-1 mt-0.5">[${i + 1}] ${s}</span>`
+          ).join('');
+        warnEl.classList.remove('hidden');
+      } else {
+        warnEl.classList.add('hidden');
+      }
+    }
+  };
+
+  window.applySubLimit = (idx) => {
+    updateSubCount(idx); // 이제 "자르기"는 분할 미리보기만 갱신
+  };
+
+  // ── 검증 개선 제안 자동 적용 ───────────────────────────────────────
+  window.improvePromptFromVal = async (idx) => {
+    const valEl    = document.getElementById(`grok-val-${idx}`);
+    const promptEl = document.getElementById(`img-prompt-${idx}`);
+    const cutEl    = document.getElementById(`img-cut-${idx}`);
+    if (!valEl || !promptEl) return;
+
+    const currentPrompt = promptEl.value.trim();
+    const suggestion    = valEl.innerText.trim();
+    const cutDesc       = cutEl?.value.trim() || (_imageCards[idx]?.cutDescription ?? '');
+
+    const btn = valEl.querySelector('button');
+    if (btn) { btn.textContent = '개선 중…'; btn.disabled = true; }
+
+    try {
+      const improved = await geminiChat(
+        '당신은 AI 이미지 생성 프롬프트 최적화 전문가입니다. 아래 피드백을 반영하여 영어 프롬프트를 개선해주세요. 반드시 영어로만 작성하고, 프롬프트 텍스트만 출력하세요 (설명, 부연 없이).',
+        [{ role: 'user', parts: [{ text: `현재 프롬프트:\n${currentPrompt}\n\n장면 묘사 (참고):\n${cutDesc}\n\n검증 피드백 및 개선 제안:\n${suggestion}` }] }]
+      );
+      const cleaned = improved.replace(/^```[a-z]*\n?|```$/gm, '').trim();
+      promptEl.value = cleaned;
+      // 검증창에 완료 메시지 추가
+      if (btn) {
+        btn.textContent = '✅ 적용 완료 — 재생성 버튼을 눌러주세요';
+        btn.className = 'mt-1 text-[11px] text-green-300 font-semibold cursor-default';
+        btn.onclick = null;
+      }
+    } catch (e) {
+      if (btn) { btn.textContent = '오류: ' + e.message; btn.disabled = false; }
+    }
+  };
+
+  window.regenWithSub = async (idx) => {
+    const imgEl = document.getElementById(`grok-img-el-${idx}`);
+    const dlEl  = document.getElementById(`grok-dl-${idx}`);
+    const remotionBtn = document.getElementById(`grok-remotion-${idx}`);
+    if (!imgEl || !imgEl.src || imgEl.src === window.location.href) return;
+
+    const rawSrc = imgEl.dataset.rawSrc || imgEl.src;
+    imgEl.dataset.rawSrc = rawSrc;
+
+    // 자막 textarea가 비어있으면 원본 카드 자막으로 채우기
+    const subEl = document.getElementById(`img-sub-${idx}`);
+    if (subEl && !subEl.value.trim()) {
+      subEl.value = _imageCards[idx]?.subtitles ?? '';
+      updateSubCount(idx);
+    }
+
+    const subText = subEl?.value.trim() ?? '';
+    const subMax  = parseInt(document.getElementById(`sub-max-${idx}`)?.value || '30', 10);
+    const finalSrc = await overlaySubtitle(rawSrc, subText, subMax);
+    imgEl.src = finalSrc;
+    dlEl.href = finalSrc;
+    if (remotionBtn) remotionBtn.dataset.src = finalSrc;
+  };
+
+  // ── 영상 내보내기 (브라우저 MediaRecorder — 세그먼트별 순차 자막) ──────
+  // ── 카드별 개별 영상 내보내기 (공통 렌더러 사용) ──────────────────
+  window.sendToRemotion = async (btn) => {
+    const src     = btn.dataset.src;
+    const idx     = Number(btn.dataset.idx);
+    const subText = (document.getElementById(`img-sub-${idx}`)?.value ?? _imageCards[idx]?.subtitles ?? '').trim();
+    const subMax  = parseInt(document.getElementById(`sub-max-${idx}`)?.value || '30', 10);
+    const origBtn = btn.textContent;
+    btn.textContent = '🎞️ 인코딩 중…'; btn.disabled = true;
+    try {
+      const blob = await renderSceneToWebM(src, subText, subMax);
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = `scene-${idx + 1}.webm`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch(e) {
+      alert('영상 내보내기 실패: ' + e.message);
+    } finally {
+      btn.textContent = origBtn; btn.disabled = false;
     }
   };
 

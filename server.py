@@ -215,6 +215,37 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception as e:
                 _send_json(self, 500, {'error': str(e)})
 
+        elif self.path == '/api/proxy/gemini':
+            # Gemini 텍스트 생성 프록시 (브라우저 직접 호출 시 네트워크 오류 우회)
+            data    = json.loads(body_raw)
+            api_key = load_env().get('GEMINI_API_KEY', '')
+            model   = load_env().get('GEMINI_MODEL', 'gemini-2.5-flash')
+            if not api_key:
+                _send_json(self, 400, {'error': 'GEMINI_API_KEY not set'}); return
+
+            url      = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}'
+            req_body = json.dumps(data).encode('utf-8')
+            req      = urllib.request.Request(url, data=req_body,
+                           headers={'Content-Type': 'application/json',
+                                    'User-Agent': 'YouTubeContentTool/1.0'})
+            try:
+                with urllib.request.urlopen(req, timeout=120, context=_ssl_ctx) as resp:
+                    resp_body = resp.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except urllib.error.HTTPError as e:
+                err_body = e.read() or b'{}'
+                self.send_response(e.code)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(err_body))
+                self.end_headers()
+                self.wfile.write(err_body)
+            except Exception as e:
+                _send_json(self, 500, {'error': str(e)})
+
         else:
             self.send_response(404)
             self.end_headers()
