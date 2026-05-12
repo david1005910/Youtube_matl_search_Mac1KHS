@@ -571,6 +571,39 @@
 </div>
 
 <script type="module">
+  // ─── JSON 안전 파서 (Gemini 응답 정제) ────────────
+  function safeParseJSON(raw) {
+    // 1) ```json ... ``` 코드블록 추출
+    const codeBlock = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+    let src = codeBlock ? codeBlock[1] : raw;
+
+    // 2) 첫 번째 { 부터 마지막 } 까지 추출
+    const start = src.indexOf('{');
+    const end   = src.lastIndexOf('}');
+    if (start === -1 || end === -1) throw new Error('JSON 블록을 찾을 수 없습니다.');
+    src = src.slice(start, end + 1);
+
+    // 3) 직접 파싱 시도
+    try { return JSON.parse(src); } catch (_) {}
+
+    // 4) 일반적인 Gemini JSON 오류 수정
+    const fixed = src
+      .replace(/,\s*([}\]])/g, '$1')          // 후행 콤마 제거
+      .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":') // 따옴표 없는 키 수정
+      .replace(/:\s*'([^']*)'/g, ': "$1"')    // 단따옴표 → 이중따옴표
+      .replace(/[ -]/g, ' ') // 제어문자 제거
+      .replace(/\n/g, '\\n')                  // 문자열 내 줄바꿈 이스케이프
+      .replace(/\\n([^"]*?"[^"]*?\\n)/g, ' $1'); // 중복 이스케이프 정리
+
+    try { return JSON.parse(fixed); } catch (_) {}
+
+    // 5) 줄바꿈 이스케이프 없이 재시도 (큰 JSON용)
+    const fixed2 = src
+      .replace(/,\s*([}\]])/g, '$1')
+      .replace(/[ -]/g, ' ');
+    return JSON.parse(fixed2);
+  }
+
   // ─── 상태 ───────────────────────────────────────
   let YOUTUBE_API_KEY    = '';
   let GEMINI_API_KEY     = '';
@@ -1010,10 +1043,9 @@ ${commentText}
   ]
 }`.trim();
 
-    const raw   = await callGemini(prompt);
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error('AI 응답 파싱 실패. 모델명을 확인해주세요.');
-    return JSON.parse(match[0]);
+    const raw = await callGemini(prompt);
+    try { return safeParseJSON(raw); }
+    catch(e) { throw new Error('AI 응답 파싱 실패. 다시 시도해주세요. (' + e.message + ')'); }
   }
 
   // ─── Gemini: 대본 목차 (JSON) ───────────────────
@@ -1049,10 +1081,9 @@ ${commentText}
   "productionTips": ["제작 팁1","제작 팁2","제작 팁3"]
 }`.trim();
 
-    const raw   = await callGemini(prompt);
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error('대본 목차 파싱 실패. 다시 시도해주세요.');
-    return JSON.parse(match[0]);
+    const raw = await callGemini(prompt);
+    try { return safeParseJSON(raw); }
+    catch(e) { throw new Error('대본 목차 파싱 실패. 다시 시도해주세요. (' + e.message + ')'); }
   }
 
   // ─── 모달 스테이지 렌더러 ───────────────────────
@@ -1441,22 +1472,28 @@ ${commentText}
 
   // ── 🖼️ 이미지 스크립트 채팅 ───────────────────────
   const SCRIPT_IMG_PROMPT = `당신은 유튜브 영상 대본을 챕터별 이미지 스크립트로 변환하는 전문가입니다.
-대본이 입력되면 각 챕터마다 아래 형식으로 이미지 스크립트를 작성하세요:
+대본이 입력되면 각 챕터마다 반드시 아래 형식을 정확히 지켜 작성하세요:
 
-📌 챕터 N. [챕터 제목]
-🎥 컷 묘사: 화면에 보여줄 장면을 구체적으로 묘사
-🖼️ AI 프롬프트 (영어): [여기에 영어 프롬프트 — 대괄호 안에 작성]
-📹 촬영/편집 방향: B-roll, 텍스트 오버레이, 효과 등
+📌 챕터 N. 챕터 제목
+🎥 컷 묘사: 화면에 보여줄 장면을 구체적으로 묘사 (한 줄로 작성)
+🖼️ AI 프롬프트 (영어): [영어 프롬프트를 한 줄에 작성, 줄바꿈 금지]
+📹 촬영/편집 방향: B-roll, 텍스트 오버레이, 효과 등 (한 줄로 작성)
+
+⚠️ 반드시 지켜야 할 규칙:
+- 각 챕터는 위 4줄 형식만 사용 (빈 줄 없이 4줄 연속 작성)
+- 챕터 블록 사이에만 빈 줄 1개 허용
+- 절대로 ** 마크다운 볼드 사용 금지
+- 🖼️ AI 프롬프트는 반드시 한 줄로 작성 (줄바꿈 금지)
 
 【AI 프롬프트 작성 규칙 — Gemini Imagen 4 최적화】
-- 반드시 영어로만 작성하고, 대괄호 [ ] 안에 넣을 것
+- 반드시 영어로만 작성하고, 대괄호 [ ] 안에 한 줄로 넣을 것
 - 주제 + 스타일 + 구도 + 조명 + 분위기를 모두 포함 (40~80 단어 권장)
 - 스타일 예시: photorealistic, cinematic, 4K, dramatic lighting, shallow depth of field
 - 유튜브에 적합한 구도: bold composition, high contrast, eye-catching
 - 사람 얼굴 포함 시: Korean person, professional portrait, confident expression 등 구체화
-- 금지: 저작권 캐릭터, 유명인 이름 직접 언급
+- 금지: 저작권 캐릭터, 유명인 이름 직접 언급, 갈등·폭력·부정적 표현
 
-추가로 썸네일용 AI 프롬프트 1개, 오프닝/클로징 화면 제안을 포함하세요.`;
+추가로 마지막에 썸네일용 AI 프롬프트 1개를 별도로 제안하세요.`;
 
   let sibHistory = [];
 
@@ -2051,31 +2088,46 @@ ${commentText}
     const cards = [];
     const seen  = new Set();
 
+    // 마크다운·특수 기호 정리 헬퍼
+    const stripMd = s => (s || '')
+      .replace(/\*\*/g, '').replace(/(?<!\*)\*(?!\*)/g, '')
+      .replace(/^[\[【『「\s]+|[\]】』」\s]+$/gm, '')
+      .trim();
+
     sibHistory.forEach(msg => {
       if (msg.role !== 'model') return;
-      const text = msg.parts[0]?.text || '';
+      const raw  = msg.parts[0]?.text || '';
+      // ** 마크다운 제거 후 파싱
+      const text = raw.replace(/\*\*/g, '');
 
-      // 챕터 블록 단위로 분리
-      const blocks = text.split(/(?=📌\s*챕터)/g);
+      // 챕터 단위로 분리 — 📌 앞 개행 기준
+      const blocks = text.split(/\n(?=📌)/g);
+
       blocks.forEach(block => {
-        if (!block.includes('영어')) return;
+        if (!/📌/.test(block)) return;
 
-        const titleM  = block.match(/📌\s*챕터\s*\d+[\.．]?\s*(.+)/);
-        const cutM    = block.match(/🎥\s*컷\s*묘사\s*[:：]\s*([\s\S]+?)(?=\n🖼️|\n📹|\n📌|$)/);
-        const promptM = block.match(/AI\s*프롬프트\s*[\(（]영어[\)）]\s*[:：]\s*([\s\S]+?)(?=\n📹|\n📌|\n\n|$)/);
-        const dirM    = block.match(/📹\s*촬영[\/\/]편집\s*방향\s*[:：]\s*([\s\S]+?)(?=\n📌|\n\n|$)/);
+        // 제목: 📌 챕터 N. 제목  (챕터 없이 장면 N도 허용)
+        const titleM = block.match(/📌\s*(?:챕터|장면|Scene)?\s*\d+[\.．]?\s*(.+?)(?:\n|$)/i);
 
-        const prompt = promptM
-          ? promptM[1].trim().replace(/^[\[【『「\s]+|[\]】』」\s]+$/g, '').trim()
-          : '';
+        // 컷 묘사: 🎥 이후 다음 이모지 섹션까지
+        const cutM   = block.match(/🎥[^\n]*[:：]\s*([\s\S]+?)(?=\n🖼️|\n📹|\n📌|$)/);
+
+        // AI 프롬프트: 🖼️ 이후 → 다음 이모지 섹션 또는 블록 끝
+        // \n\n 을 터미네이터에서 제거해 멀티라인 프롬프트 허용
+        const promptM = block.match(/🖼️[^\n]*[:：]\s*([\s\S]+?)(?=\n📹|\n📌|$)/);
+
+        // 촬영/편집 방향: 📹 이후
+        const dirM   = block.match(/📹[^\n]*[:：]\s*([\s\S]+?)(?=\n📌|$)/);
+
+        const prompt = stripMd(promptM?.[1] || '');
         if (!prompt || prompt.length < 5 || seen.has(prompt)) return;
         seen.add(prompt);
 
         cards.push({
-          chapterTitle:   titleM ? titleM[1].trim() : `장면 ${cards.length + 1}`,
-          cutDescription: cutM   ? cutM[1].trim()   : '',
+          chapterTitle:   stripMd(titleM?.[1]) || `장면 ${cards.length + 1}`,
+          cutDescription: stripMd(cutM?.[1])   || '',
           prompt,
-          direction:      dirM   ? dirM[1].trim()   : '',
+          direction:      stripMd(dirM?.[1])   || '',
           subtitles:      '',
         });
       });
@@ -2667,9 +2719,9 @@ ${commentText}
       );
 
       // JSON 추출
-      const jsonMatch = result.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('JSON 파싱 실패');
-      const data = JSON.parse(jsonMatch[0]);
+      let data;
+      try { data = safeParseJSON(result); }
+      catch(e) { throw new Error('JSON 파싱 실패: ' + e.message); }
 
       // 텍스트 영역에 채우기
       const cutEl = document.getElementById(`img-cut-${idx}`);
@@ -2764,25 +2816,51 @@ ${commentText}
         valEl.classList.remove('hidden');
       }
 
-      // ── Step 2: 이미지 생성 ──
+      // ── Step 2: 이미지 생성 (RAI 차단 시 자동 프롬프트 완화 재시도) ──
       if (spinLabel) spinLabel.textContent = '② Gemini Imagen 생성 중…';
       if (btn) btn.textContent = '생성 중…';
 
-      const res  = await fetch('/api/proxy/gemini-image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data).slice(0, 200));
+      let rawSrc = null;
+      let currentPrompt = prompt;
 
-      const pred = data.predictions?.[0];
-      if (!pred) throw new Error('이미지 데이터 없음');
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const res  = await fetch('/api/proxy/gemini-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: currentPrompt }),
+        });
+        const data = await res.json();
+        const errMsg = data.error?.message || '';
 
-      const b64  = pred.bytesBase64Encoded;
-      const mime = pred.mimeType || 'image/png';
-      if (!b64) throw new Error('이미지 데이터 없음');
-      const rawSrc = `data:${mime};base64,${b64}`;
+        if (!res.ok) {
+          const isRAI = errMsg.includes('RAI') || errMsg.includes('safety') ||
+                        errMsg.includes('policy') || errMsg.includes('retrieve RAI');
+          if (isRAI && attempt < 2) {
+            // RAI 차단 → Gemini로 프롬프트 자동 완화 후 재시도
+            if (spinLabel) spinLabel.textContent = `⚠️ 안전 필터 차단 — 프롬프트 완화 중… (${attempt + 1}/2)`;
+            const saferPrompt = await geminiChat(
+              '아래 이미지 프롬프트가 Gemini Imagen의 안전 정책에 의해 차단됐습니다. 폭력·갈등·부정적 감정을 제거하고, 같은 장면을 중립적·긍정적으로 재작성해 주세요. 영어 프롬프트만 출력하세요.',
+              [{ role: 'user', parts: [{ text: currentPrompt }] }]
+            );
+            currentPrompt = saferPrompt.replace(/^```[a-z]*\n?|```$/gm, '').trim();
+            // 완화된 프롬프트를 textarea에 반영
+            const promptEl2 = document.getElementById(`img-prompt-${idx}`);
+            if (promptEl2) promptEl2.value = currentPrompt;
+            if (spinLabel) spinLabel.textContent = '② 완화된 프롬프트로 재생성 중…';
+            continue;
+          }
+          throw new Error(isRAI
+            ? `안전 필터에 의해 차단됐습니다. 프롬프트에서 갈등·폭력·부정적 묘사를 줄여보세요.\n\n원본 오류: ${errMsg}`
+            : (errMsg || JSON.stringify(data).slice(0, 200)));
+        }
+
+        const pred = data.predictions?.[0];
+        if (!pred?.bytesBase64Encoded) throw new Error('이미지 데이터 없음');
+        const mime = pred.mimeType || 'image/png';
+        rawSrc = `data:${mime};base64,${pred.bytesBase64Encoded}`;
+        break;
+      }
+      if (!rawSrc) throw new Error('이미지 생성 실패');
 
       // 자막 텍스트를 Canvas로 오버레이 (Imagen은 한글 렌더링 불가)
       const subText  = (document.getElementById(`img-sub-${idx}`)?.value ?? _imageCards[idx]?.subtitles ?? '').trim();
