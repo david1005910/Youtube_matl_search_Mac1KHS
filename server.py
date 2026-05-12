@@ -28,6 +28,7 @@ def load_env():
         'GEMINI_MODEL': 'gemini-2.5-flash',
         'TRANSCRIPT_API_KEY': '',
         'XAI_API_KEY': '',
+        'IMGBB_API_KEY': '',
     }
     if ENV_FILE.exists():
         for line in ENV_FILE.read_text(encoding='utf-8').splitlines():
@@ -44,6 +45,7 @@ def save_env(data):
         f"GEMINI_MODEL={data.get('GEMINI_MODEL', 'gemini-2.5-flash')}\n"
         f"TRANSCRIPT_API_KEY={data.get('TRANSCRIPT_API_KEY', '')}\n"
         f"XAI_API_KEY={data.get('XAI_API_KEY', '')}\n"
+        f"IMGBB_API_KEY={data.get('IMGBB_API_KEY', '')}\n"
     )
     ENV_FILE.write_text(content, encoding='utf-8')
 
@@ -115,6 +117,36 @@ class Handler(SimpleHTTPRequestHandler):
             if not content:
                 self.send_response(404); self.end_headers(); return
             _send_json(self, 200, {'content': content})
+
+        elif self.path.startswith('/api/proxy/grok-video/'):
+            # Grok 비디오 생성 상태 폴링
+            request_id = self.path[len('/api/proxy/grok-video/'):]
+            if not all(c in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_' for c in request_id):
+                self.send_response(400); self.end_headers(); return
+            api_key = load_env().get('XAI_API_KEY', '')
+            if not api_key:
+                _send_json(self, 400, {'error': 'XAI_API_KEY not set'}); return
+            req = urllib.request.Request(
+                f'https://api.x.ai/v1/videos/{request_id}',
+                headers={'Authorization': f'Bearer {api_key}', 'User-Agent': 'YouTubeContentTool/1.0'}
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=15, context=_ssl_ctx) as resp:
+                    resp_body = resp.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except urllib.error.HTTPError as e:
+                err_body = e.read() or b'{}'
+                self.send_response(e.code)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(err_body))
+                self.end_headers()
+                self.wfile.write(err_body)
+            except Exception as e:
+                _send_json(self, 500, {'error': str(e)})
 
         else:
             super().do_GET()
@@ -230,6 +262,84 @@ class Handler(SimpleHTTPRequestHandler):
                                     'User-Agent': 'YouTubeContentTool/1.0'})
             try:
                 with urllib.request.urlopen(req, timeout=120, context=_ssl_ctx) as resp:
+                    resp_body = resp.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except urllib.error.HTTPError as e:
+                err_body = e.read() or b'{}'
+                self.send_response(e.code)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(err_body))
+                self.end_headers()
+                self.wfile.write(err_body)
+            except Exception as e:
+                _send_json(self, 500, {'error': str(e)})
+
+        # ── Grok 비디오 생성 (텍스트→영상 / 이미지→영상) ──────────────────
+        elif self.path == '/api/proxy/grok-video':
+            data    = json.loads(body_raw)
+            api_key = load_env().get('XAI_API_KEY', '')
+            if not api_key:
+                _send_json(self, 400, {'error': 'XAI_API_KEY not set'}); return
+
+            payload = {
+                'model': 'grok-imagine-video',
+                'prompt': data.get('prompt', ''),
+                'duration': data.get('duration', 10),
+                'aspect_ratio': data.get('aspect_ratio', '16:9'),
+                'resolution': data.get('resolution', '720p'),
+            }
+            # 이미지 URL이 있으면 image-to-video
+            if data.get('image_url'):
+                payload['image'] = {'url': data['image_url']}
+
+            req_body = json.dumps(payload).encode('utf-8')
+            req = urllib.request.Request(
+                'https://api.x.ai/v1/videos/generations',
+                data=req_body,
+                headers={
+                    'Content-Type': 'application/json',
+                    'Authorization': f'Bearer {api_key}',
+                    'User-Agent': 'YouTubeContentTool/1.0',
+                }
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=30, context=_ssl_ctx) as resp:
+                    resp_body = resp.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except urllib.error.HTTPError as e:
+                err_body = e.read() or b'{}'
+                self.send_response(e.code)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(err_body))
+                self.end_headers()
+                self.wfile.write(err_body)
+            except Exception as e:
+                _send_json(self, 500, {'error': str(e)})
+
+        # ── imgbb 이미지 업로드 (base64 → 공개 URL) ─────────────────────
+        elif self.path == '/api/proxy/imgbb-upload':
+            data    = json.loads(body_raw)
+            api_key = load_env().get('IMGBB_API_KEY', '')
+            if not api_key:
+                _send_json(self, 400, {'error': 'IMGBB_API_KEY not set'}); return
+
+            b64 = data.get('image', '')  # pure base64 (no data: prefix)
+            form = urllib.parse.urlencode({'key': api_key, 'image': b64}).encode('utf-8')
+            req  = urllib.request.Request(
+                'https://api.imgbb.com/1/upload',
+                data=form,
+                headers={'User-Agent': 'YouTubeContentTool/1.0'}
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=30, context=_ssl_ctx) as resp:
                     resp_body = resp.read()
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
