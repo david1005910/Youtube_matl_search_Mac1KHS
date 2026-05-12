@@ -118,6 +118,39 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_response(404); self.end_headers(); return
             _send_json(self, 200, {'content': content})
 
+        elif self.path.startswith('/api/proxy/youtube'):
+            # YouTube Data API v3 프록시
+            qs_part = self.path[len('/api/proxy/youtube'):]  # e.g. /search?part=...
+            api_key = load_env().get('YOUTUBE_API_KEY', '')
+            if not api_key:
+                _send_json(self, 400, {'error': 'YOUTUBE_API_KEY not set'}); return
+            # qs_part starts with '/' then endpoint and query
+            yt_url = f'https://www.googleapis.com/youtube/v3{qs_part}'
+            # append key
+            sep = '&' if '?' in yt_url else '?'
+            yt_url = f'{yt_url}{sep}key={urllib.parse.quote(api_key, safe="")}'
+            req = urllib.request.Request(
+                yt_url,
+                headers={'User-Agent': 'YouTubeContentTool/1.0'}
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=20, context=_ssl_ctx) as resp:
+                    resp_body = resp.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except urllib.error.HTTPError as e:
+                err_body = e.read() or b'{}'
+                self.send_response(e.code)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(err_body))
+                self.end_headers()
+                self.wfile.write(err_body)
+            except Exception as e:
+                _send_json(self, 500, {'error': str(e)})
+
         elif self.path.startswith('/api/proxy/grok-video/'):
             # Grok 비디오 생성 상태 폴링
             request_id = self.path[len('/api/proxy/grok-video/'):]
