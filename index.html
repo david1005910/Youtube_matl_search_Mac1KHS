@@ -242,6 +242,80 @@
     #subtitleRenderBody::-webkit-scrollbar { width: 6px; }
     #subtitleRenderBody::-webkit-scrollbar-track { background: #0f172a; }
     #subtitleRenderBody::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+
+    /* ── Grok 영상 생성 위젯 ── */
+    #grokVideoToggle {
+      position: fixed; top: 24px; right: 288px; z-index: 1000;
+      width: 52px; height: 52px; border-radius: 50%;
+      background: linear-gradient(135deg, #e11d48, #9f1239);
+      border: none; cursor: pointer; font-size: 22px;
+      box-shadow: 0 4px 20px rgba(225,29,72,0.5);
+      transition: transform 0.2s;
+    }
+    #grokVideoToggle:hover { transform: scale(1.08); }
+    #grokVideoWindow {
+      position: fixed; right: 288px; z-index: 999;
+      top: calc(24px + 52px + 10px);
+      width: 520px;
+      height: min(720px, calc(100vh - 100px));
+      background: #1e293b; border: 1px solid #334155;
+      border-radius: 16px; flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+      overflow: hidden; display: none;
+    }
+    #grokVideoWindow.open { display: flex; }
+    #grokVideoBody {
+      flex: 1; min-height: 0; overflow-y: auto; padding: 16px;
+    }
+    #grokVideoBody::-webkit-scrollbar { width: 6px; }
+    #grokVideoBody::-webkit-scrollbar-track { background: #0f172a; }
+    #grokVideoBody::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+    .grok-opt-btn {
+      padding: 4px 10px; border-radius: 8px; font-size: 11px; font-weight: 600;
+      border: 1px solid #475569; background: #0f172a; color: #94a3b8; cursor: pointer; transition: all 0.15s;
+    }
+    .grok-opt-btn.active { background: #e11d48; border-color: #e11d48; color: #fff; }
+    .grok-opt-btn:hover:not(.active) { border-color: #e11d48; color: #fda4af; }
+
+    /* ── 경량 Vrew 위젯 ── */
+    #vrewToggle {
+      position: fixed; top: 24px; right: 354px; z-index: 1000;
+      width: 52px; height: 52px; border-radius: 50%;
+      background: linear-gradient(135deg, #0d9488, #0891b2);
+      border: none; cursor: pointer; font-size: 22px;
+      box-shadow: 0 4px 20px rgba(13,148,136,0.5);
+      transition: transform 0.2s;
+    }
+    #vrewToggle:hover { transform: scale(1.08); }
+    #vrewModal {
+      position: fixed; inset: 0; z-index: 60;
+      background: rgba(0,0,0,0.85); backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+      padding: 16px;
+    }
+    #vrewModal.hidden { display: none; }
+    #vrewSegList::-webkit-scrollbar { width: 6px; }
+    #vrewSegList::-webkit-scrollbar-track { background: #0f172a; }
+    #vrewSegList::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+    .vrew-row {
+      display: grid;
+      grid-template-columns: 64px 58px 1fr 1fr 28px;
+      gap: 6px; align-items: start;
+      padding: 6px 12px; border-bottom: 1px solid #1e293b;
+    }
+    .vrew-row:hover { background: rgba(13,148,136,0.05); }
+    .vrew-cell-ta {
+      width: 100%; background: #0f172a; border: 1px solid #334155;
+      border-radius: 6px; padding: 4px 8px; font-size: 11px;
+      color: #e2e8f0; resize: none; outline: none; line-height: 1.5;
+    }
+    .vrew-cell-ta:focus { border-color: #0d9488; }
+    .vrew-cell-num {
+      width: 100%; background: #0f172a; border: 1px solid #334155;
+      border-radius: 6px; padding: 4px 6px; font-size: 10px;
+      color: #94a3b8; outline: none; text-align: center;
+    }
+    .vrew-cell-num:focus { border-color: #0d9488; }
   </style>
 </head>
 <body class="text-slate-100 min-h-screen">
@@ -686,6 +760,96 @@
 </div>
 <button id="subtitleRenderToggle" title="자막 굽기 (Remotion)">🎞️</button>
 
+<!-- ── Grok 영상 생성 위젯 ── -->
+<div id="grokVideoWindow">
+  <div class="flex items-center justify-between px-4 py-3 border-b border-slate-700 flex-shrink-0">
+    <div>
+      <p class="text-sm font-bold text-rose-300">🎥 Grok 영상 생성 (xAI)</p>
+      <p class="text-[11px] text-slate-500">텍스트 또는 이미지로 AI 영상 자동 생성</p>
+    </div>
+    <button id="grokVideoCloseBtn" class="text-slate-400 hover:text-white text-lg leading-none">✕</button>
+  </div>
+  <div id="grokVideoBody">
+
+    <!-- 모드 탭 -->
+    <div class="flex gap-1.5 mb-4">
+      <button id="grokVideoTabText" onclick="switchGrokVideoTab('text')"
+        class="flex-1 py-2 text-xs font-bold rounded-lg bg-rose-700 text-white border border-rose-600 transition">
+        ✏️ 텍스트→영상
+      </button>
+      <button id="grokVideoTabImg" onclick="switchGrokVideoTab('image')"
+        class="flex-1 py-2 text-xs font-bold rounded-lg bg-slate-700 text-slate-300 border border-slate-600 transition">
+        🖼️ 이미지→영상
+      </button>
+    </div>
+
+    <!-- 이미지 업로드 (이미지→영상 탭) -->
+    <div id="grokVideoImgPanel" class="hidden mb-4 p-3 bg-slate-900/60 border border-slate-700 rounded-xl">
+      <p class="text-[11px] font-bold text-rose-300 mb-2">참조 이미지 업로드</p>
+      <label class="flex items-center gap-2 cursor-pointer">
+        <span class="bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold px-3 py-2 rounded-lg transition whitespace-nowrap">
+          📁 이미지 선택
+        </span>
+        <input type="file" accept="image/*" id="grokVideoImgInput" class="hidden" onchange="handleGrokVideoImgUpload(this)">
+        <span id="grokVideoImgName" class="text-[11px] text-slate-400 truncate">미선택</span>
+      </label>
+      <div id="grokVideoImgPreview" class="hidden mt-2">
+        <img id="grokVideoImgEl" class="w-full max-h-36 object-contain rounded-lg border border-slate-700" />
+      </div>
+    </div>
+
+    <!-- 프롬프트 -->
+    <div class="mb-4">
+      <label class="block text-[11px] font-bold text-slate-300 mb-1.5">
+        프롬프트
+        <span class="font-normal text-slate-500 ml-1">— 한국어 입력 시 AI가 자동 영문 변환</span>
+      </label>
+      <textarea id="grokVideoPrompt" rows="4"
+        placeholder="예: 숲 속 폭포 앞에서 걷는 여성, 영화적 느낌, 골든 아워 조명, 슬로우 모션..."
+        class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-100 resize-none focus:outline-none focus:border-rose-500"></textarea>
+    </div>
+
+    <!-- 영상 설정 -->
+    <div class="mb-4 p-3 bg-slate-900/60 border border-slate-700 rounded-xl space-y-3">
+      <p class="text-[11px] font-bold text-slate-300">영상 설정</p>
+      <div>
+        <p class="text-[10px] text-slate-400 mb-1.5">길이</p>
+        <div class="flex gap-1.5 flex-wrap">
+          <button class="grok-opt-btn grok-dur active" data-val="5">5초</button>
+          <button class="grok-opt-btn grok-dur" data-val="10">10초</button>
+        </div>
+      </div>
+      <div>
+        <p class="text-[10px] text-slate-400 mb-1.5">화면 비율</p>
+        <div class="flex gap-1.5 flex-wrap">
+          <button class="grok-opt-btn grok-ratio active" data-val="16:9">16:9 가로</button>
+          <button class="grok-opt-btn grok-ratio" data-val="9:16">9:16 세로</button>
+          <button class="grok-opt-btn grok-ratio" data-val="1:1">1:1 정방</button>
+        </div>
+      </div>
+      <div>
+        <p class="text-[10px] text-slate-400 mb-1.5">화질</p>
+        <div class="flex gap-1.5 flex-wrap">
+          <button class="grok-opt-btn grok-res active" data-val="720p">720p</button>
+          <button class="grok-opt-btn grok-res" data-val="1080p">1080p</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 생성 버튼 -->
+    <button id="grokVideoGenerateBtn" onclick="startGrokVideoGenerate()"
+      class="w-full bg-gradient-to-r from-rose-600 to-pink-700 hover:from-rose-500 hover:to-pink-600
+             text-white text-sm font-bold py-2.5 rounded-xl transition mb-5 flex items-center justify-center gap-2">
+      🎥 영상 생성 시작
+    </button>
+
+    <!-- 생성 큐 목록 -->
+    <div id="grokVideoQueue" class="space-y-3"></div>
+
+  </div>
+</div>
+<button id="grokVideoToggle" title="Grok 영상 생성 (xAI)">🎥</button>
+
 <!-- ── Gemini 이미지 생성 모달 ── -->
 <div id="grokModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 hidden px-4 py-6"
      onclick="if(event.target===this) closeGrokModal()">
@@ -719,6 +883,142 @@
     </div>
   </div>
 </div>
+
+<!-- ── 경량 Vrew 모달 ── -->
+<div id="vrewModal" class="hidden" onclick="if(event.target===this)closeVrewModal()">
+  <div class="bg-slate-800 border border-slate-700 rounded-2xl w-full flex flex-col"
+       style="max-width:1100px; height:90vh">
+
+    <!-- 헤더 -->
+    <div class="flex items-center justify-between px-6 py-4 border-b border-slate-700 flex-shrink-0">
+      <div>
+        <h3 class="font-bold text-teal-300 text-base">✂️ 경량 Vrew — 자막 편집 &amp; 영상 렌더링</h3>
+        <p class="text-[11px] text-slate-400 mt-0.5">
+          TranscriptAPI 자막 추출 → 인라인 편집 → Gemini 번역 → Remotion 렌더링
+        </p>
+      </div>
+      <button onclick="closeVrewModal()" class="text-slate-400 hover:text-white text-xl leading-none ml-6">✕</button>
+    </div>
+
+    <!-- 메인 2단 레이아웃 -->
+    <div class="flex flex-1 min-h-0 overflow-hidden">
+
+      <!-- 왼쪽: 설정 패널 -->
+      <div class="w-72 flex-shrink-0 border-r border-slate-700 overflow-y-auto p-4 space-y-4">
+
+        <!-- ① 자막 소스 -->
+        <div class="bg-slate-900/60 border border-slate-700 rounded-xl p-3">
+          <p class="text-[11px] font-bold text-teal-300 mb-2">① 자막 가져오기</p>
+          <input id="vrewYtUrl" type="text"
+            placeholder="YouTube URL 또는 영상 ID"
+            class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-teal-500 mb-2" />
+          <select id="vrewLangSelect"
+            class="w-full bg-slate-900 border border-slate-600 rounded-lg px-2 py-2 text-xs text-slate-100 focus:outline-none focus:border-teal-500 mb-2">
+            <option value="ko">한국어</option>
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+            <option value="zh-Hans">中文(简体)</option>
+            <option value="zh-Hant">中文(繁體)</option>
+            <option value="es">Español</option>
+          </select>
+          <button onclick="vrewFetchSubtitles()" id="vrewFetchBtn"
+            class="w-full bg-teal-700 hover:bg-teal-600 text-white text-xs font-bold px-3 py-2 rounded-lg transition">
+            📄 자막 가져오기
+          </button>
+          <p id="vrewFetchStatus" class="text-[10px] text-slate-500 mt-2 leading-relaxed"></p>
+        </div>
+
+        <!-- ② 번역 -->
+        <div id="vrewTransSection" class="hidden bg-slate-900/60 border border-slate-700 rounded-xl p-3">
+          <p class="text-[11px] font-bold text-indigo-300 mb-2">② Gemini 번역</p>
+          <select id="vrewTransLang"
+            class="w-full bg-slate-900 border border-slate-600 rounded-lg px-2 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500 mb-2">
+            <option value="Korean">한국어</option>
+            <option value="English">English</option>
+            <option value="Japanese">日本語</option>
+            <option value="Chinese Simplified">中文(简体)</option>
+            <option value="Spanish">Español</option>
+          </select>
+          <button onclick="vrewTranslate()" id="vrewTransBtn"
+            class="w-full bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-bold px-3 py-2 rounded-lg transition">
+            🌐 전체 번역
+          </button>
+          <p id="vrewTransStatus" class="text-[10px] text-slate-500 mt-2 leading-relaxed"></p>
+        </div>
+
+        <!-- ③ 렌더링 -->
+        <div id="vrewRenderSection" class="hidden bg-slate-900/60 border border-slate-700 rounded-xl p-3">
+          <p class="text-[11px] font-bold text-teal-300 mb-2">③ 렌더링 (Remotion)</p>
+          <label class="block text-[10px] text-slate-400 mb-1">영상 파일 경로 / URL</label>
+          <input id="vrewVideoSrc" type="text"
+            placeholder="/Users/david/video.mp4"
+            class="w-full bg-slate-900 border border-slate-600 rounded-lg px-2 py-2 text-[11px] text-slate-100 focus:outline-none focus:border-teal-500 mb-2" />
+          <label class="block text-[10px] text-slate-400 mb-1">영상 길이 (초)</label>
+          <input id="vrewDuration" type="number" min="1" placeholder="자동 계산"
+            class="w-full bg-slate-900 border border-slate-600 rounded-lg px-2 py-2 text-[11px] text-slate-100 focus:outline-none focus:border-teal-500 mb-3" />
+          <label class="flex items-center gap-2 cursor-pointer mb-3">
+            <input type="checkbox" id="vrewBilingualToggle" class="accent-teal-500" />
+            <span class="text-[11px] text-slate-300">2중 자막 (번역 포함)</span>
+          </label>
+          <p class="text-[10px] text-slate-500 mb-2">
+            렌더 서버:
+            <code class="bg-slate-800 px-1 rounded text-teal-400">cd remotion &amp;&amp; npm start</code>
+          </p>
+          <button onclick="vrewRender()" id="vrewRenderBtn"
+            class="w-full bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500
+                   text-white text-xs font-bold py-2.5 rounded-xl transition">
+            🎬 자막 렌더링 → MP4
+          </button>
+          <p id="vrewRenderStatus" class="text-[10px] text-slate-500 mt-2 leading-relaxed"></p>
+        </div>
+
+      </div>
+
+      <!-- 오른쪽: 자막 에디터 -->
+      <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
+
+        <!-- 에디터 툴바 -->
+        <div id="vrewEditorToolbar" class="hidden flex items-center justify-between px-4 py-2 border-b border-slate-700 flex-shrink-0 flex-wrap gap-2">
+          <div class="flex items-center gap-2">
+            <span id="vrewSegCount" class="text-[11px] text-slate-400"></span>
+            <button onclick="vrewAddSegment()"
+              class="bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg transition">
+              + 추가
+            </button>
+            <button onclick="vrewClearAll()"
+              class="text-red-400 hover:text-red-300 text-[11px] border border-red-900 hover:border-red-700 px-2.5 py-1 rounded-lg transition">
+              🗑 전체 삭제
+            </button>
+          </div>
+          <div class="flex items-center gap-2 text-[10px] text-slate-500">
+            <span class="w-16 text-center">시작</span>
+            <span class="w-14 text-center">길이(초)</span>
+            <span class="flex-1 text-center">자막 텍스트</span>
+            <span class="flex-1 text-center">번역 (선택)</span>
+          </div>
+        </div>
+
+        <!-- 자막 목록 -->
+        <div id="vrewSegList" class="flex-1 overflow-y-auto">
+          <!-- 초기 안내 -->
+          <div id="vrewEmptyHint" class="flex flex-col items-center justify-center h-full text-slate-600">
+            <p class="text-4xl mb-3">✂️</p>
+            <p class="text-sm font-semibold">왼쪽에서 YouTube URL을 입력하고</p>
+            <p class="text-sm">자막을 가져오면 여기에 편집 가능한 자막이 표시됩니다.</p>
+            <div class="mt-5 text-xs text-slate-700 space-y-1 text-center">
+              <p>① YouTube URL → 자막 자동 추출 (TranscriptAPI)</p>
+              <p>② 인라인 텍스트 편집 · 타이밍 조정 · 세그먼트 추가/삭제</p>
+              <p>③ Gemini로 전체 번역 (2중 자막)</p>
+              <p>④ Remotion으로 영상에 자막 굽기 → MP4 다운로드</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+<button id="vrewToggle" title="경량 Vrew — 자막 편집 &amp; 렌더링">✂️</button>
 
 </body>
 </html>
