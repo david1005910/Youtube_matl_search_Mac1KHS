@@ -4,7 +4,7 @@
 실행: python3 server.py
 접속: http://localhost:8765
 """
-import json, os, ssl, urllib.request, urllib.parse, urllib.error
+import json, os, ssl, subprocess, tempfile, shutil, urllib.request, urllib.parse, urllib.error
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
@@ -388,6 +388,61 @@ class Handler(SimpleHTTPRequestHandler):
                 self.wfile.write(err_body)
             except Exception as e:
                 _send_json(self, 500, {'error': str(e)})
+
+        # ── Grok 영상 URL 목록 → ffmpeg concat → MP4 반환 ──────────────
+        elif self.path == '/api/proxy/grok-video-concat':
+            data = json.loads(body_raw)
+            video_urls = data.get('video_urls', [])
+            if not video_urls or len(video_urls) < 1:
+                _send_json(self, 400, {'error': 'video_urls 필요'}); return
+
+            # ffmpeg 경로 탐색
+            ffmpeg_path = shutil.which('ffmpeg') or '/usr/local/bin/ffmpeg' or '/opt/homebrew/bin/ffmpeg'
+            if not ffmpeg_path or not Path(ffmpeg_path).exists():
+                _send_json(self, 500, {'error': 'ffmpeg를 찾을 수 없습니다. brew install ffmpeg 실행 필요'}); return
+
+            tmpdir = tempfile.mkdtemp(prefix='grok_concat_')
+            try:
+                # 각 영상 URL 다운로드
+                clip_paths = []
+                for i, url in enumerate(video_urls):
+                    clip_path = os.path.join(tmpdir, f'clip_{i:03d}.mp4')
+                    req = urllib.request.Request(url, headers={'User-Agent': 'YouTubeContentTool/1.0'})
+                    with urllib.request.urlopen(req, timeout=60, context=_ssl_ctx) as resp:
+                        with open(clip_path, 'wb') as f:
+                            f.write(resp.read())
+                    clip_paths.append(clip_path)
+
+                # ffmpeg concat list 파일 생성
+                list_path = os.path.join(tmpdir, 'concat_list.txt')
+                with open(list_path, 'w') as f:
+                    for p in clip_paths:
+                        f.write(f"file '{p}'\n")
+
+                out_path = os.path.join(tmpdir, 'output.mp4')
+                result = subprocess.run(
+                    [ffmpeg_path, '-y', '-f', 'concat', '-safe', '0',
+                     '-i', list_path, '-c', 'copy', out_path],
+                    capture_output=True, timeout=300
+                )
+                if result.returncode != 0:
+                    err = result.stderr.decode('utf-8', errors='replace')[-500:]
+                    _send_json(self, 500, {'error': f'ffmpeg 오류: {err}'}); return
+
+                with open(out_path, 'rb') as f:
+                    mp4_data = f.read()
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'video/mp4')
+                self.send_header('Content-Length', len(mp4_data))
+                self.send_header('Content-Disposition', 'attachment; filename="grok_concat.mp4"')
+                self.end_headers()
+                self.wfile.write(mp4_data)
+
+            except Exception as e:
+                _send_json(self, 500, {'error': str(e)})
+            finally:
+                shutil.rmtree(tmpdir, ignore_errors=True)
 
         else:
             self.send_response(404)

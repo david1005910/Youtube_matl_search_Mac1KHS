@@ -842,9 +842,17 @@
     <!-- 생성 버튼 -->
     <button id="grokVideoGenerateBtn" onclick="startGrokVideoGenerate()"
       class="w-full bg-gradient-to-r from-rose-600 to-pink-700 hover:from-rose-500 hover:to-pink-600
-             text-white text-sm font-bold py-2.5 rounded-xl transition mb-5 flex items-center justify-center gap-2">
+             text-white text-sm font-bold py-2.5 rounded-xl transition mb-2 flex items-center justify-center gap-2">
       🎥 영상 생성 시작
     </button>
+
+    <!-- 전체 카드 concat 버튼 -->
+    <button id="grokConcatBtn" onclick="generateAllGrokAndConcat()"
+      class="w-full bg-gradient-to-r from-violet-700 to-purple-800 hover:from-violet-600 hover:to-purple-700
+             text-white text-xs font-bold py-2 rounded-xl transition mb-4 flex items-center justify-center gap-2">
+      🎬 전체 카드 영상 생성 + 합치기 (ffmpeg)
+    </button>
+    <p id="grokConcatLog" class="text-[11px] text-slate-400 mb-4 min-h-[16px]"></p>
 
     <!-- 생성 큐 목록 -->
     <div id="grokVideoQueue" class="space-y-3"></div>
