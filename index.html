@@ -788,16 +788,24 @@
 
     <!-- 이미지 업로드 (이미지→영상 탭) -->
     <div id="grokVideoImgPanel" class="hidden mb-4 p-3 bg-slate-900/60 border border-slate-700 rounded-xl">
-      <p class="text-[11px] font-bold text-rose-300 mb-2">참조 이미지 업로드</p>
+      <p class="text-[11px] font-bold text-rose-300 mb-2">참조 이미지</p>
+
+      <!-- 카드 이미지 자동 불러오기 -->
+      <div id="grokCardThumbStrip" class="hidden mb-3">
+        <p class="text-[10px] text-slate-400 mb-1.5">생성된 카드 이미지 선택</p>
+        <div id="grokCardThumbs" class="flex gap-1.5 overflow-x-auto pb-1"></div>
+      </div>
+
       <label class="flex items-center gap-2 cursor-pointer">
         <span class="bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold px-3 py-2 rounded-lg transition whitespace-nowrap">
-          📁 이미지 선택
+          📁 직접 업로드
         </span>
         <input type="file" accept="image/*" id="grokVideoImgInput" class="hidden" onchange="handleGrokVideoImgUpload(this)">
         <span id="grokVideoImgName" class="text-[11px] text-slate-400 truncate">미선택</span>
       </label>
       <div id="grokVideoImgPreview" class="hidden mt-2">
         <img id="grokVideoImgEl" class="w-full max-h-36 object-contain rounded-lg border border-slate-700" />
+        <p id="grokVideoImgLabel" class="text-[10px] text-slate-500 mt-1"></p>
       </div>
     </div>
 
