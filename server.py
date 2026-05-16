@@ -81,6 +81,11 @@ def list_yt_skills():
         if p.is_dir() and (p / 'SKILL.md').exists()
     )
 
+def _ms_to_srt(ms):
+    h = ms // 3600000; m = (ms % 3600000) // 60000
+    s = (ms % 60000) // 1000; r = ms % 1000
+    return f'{h:02d}:{m:02d}:{s:02d},{r:03d}'
+
 def _send_json(handler, status, obj):
     body = json.dumps(obj, ensure_ascii=False).encode('utf-8')
     handler.send_response(status)
@@ -388,6 +393,125 @@ class Handler(SimpleHTTPRequestHandler):
                 self.wfile.write(err_body)
             except Exception as e:
                 _send_json(self, 500, {'error': str(e)})
+
+        # ── Gemini TTS ───────────────────────────────────────────────
+        elif self.path == '/api/proxy/gemini-tts':
+            data    = json.loads(body_raw)
+            api_key = load_env().get('GEMINI_API_KEY', '')
+            if not api_key:
+                _send_json(self, 400, {'error': 'GEMINI_API_KEY not set'}); return
+
+            text  = data.get('text', '')
+            voice = data.get('voice', 'Kore')
+            model = 'gemini-2.5-flash-preview-tts'
+            url   = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}'
+            req_body = json.dumps({
+                'contents': [{'parts': [{'text': text}], 'role': 'user'}],
+                'generationConfig': {
+                    'responseModalities': ['AUDIO'],
+                    'speechConfig': {'voiceConfig': {'prebuiltVoiceConfig': {'voiceName': voice}}}
+                }
+            }).encode('utf-8')
+            req = urllib.request.Request(url, data=req_body,
+                      headers={'Content-Type': 'application/json', 'User-Agent': 'YouTubeContentTool/1.0'})
+            try:
+                with urllib.request.urlopen(req, timeout=120, context=_ssl_ctx) as resp:
+                    resp_body = resp.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except urllib.error.HTTPError as e:
+                err_body = e.read() or b'{}'
+                self.send_response(e.code)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(err_body))
+                self.end_headers()
+                self.wfile.write(err_body)
+            except Exception as e:
+                _send_json(self, 500, {'error': str(e)})
+
+        # ── 영상 + 음성 + 소프트 자막 병합 ──────────────────────────────
+        elif self.path == '/api/proxy/video-audio-merge':
+            import base64 as _b64
+            data       = json.loads(body_raw)
+            video_urls = data.get('video_urls', [])
+            audio_b64  = data.get('audio_b64', '')
+            subtitles  = data.get('subtitles', [])   # [{start_ms, end_ms, text}]
+
+            if not video_urls: _send_json(self, 400, {'error': 'video_urls 필요'}); return
+            if not audio_b64:  _send_json(self, 400, {'error': 'audio_b64 필요'}); return
+
+            ffmpeg_path = shutil.which('ffmpeg') or '/usr/local/bin/ffmpeg'
+            if not ffmpeg_path or not Path(ffmpeg_path).exists():
+                _send_json(self, 500, {'error': 'ffmpeg 없음'}); return
+
+            tmpdir = tempfile.mkdtemp(prefix='tts_merge_')
+            try:
+                # 비디오 다운로드
+                clip_paths = []
+                for i, url in enumerate(video_urls):
+                    clip_path = os.path.join(tmpdir, f'clip_{i:03d}.mp4')
+                    req = urllib.request.Request(url, headers={'User-Agent': 'YouTubeContentTool/1.0'})
+                    with urllib.request.urlopen(req, timeout=60, context=_ssl_ctx) as resp:
+                        with open(clip_path, 'wb') as f: f.write(resp.read())
+                    clip_paths.append(clip_path)
+
+                # concat (1개면 그대로)
+                video_path = os.path.join(tmpdir, 'video.mp4')
+                if len(clip_paths) == 1:
+                    import shutil as _sh; _sh.copy(clip_paths[0], video_path)
+                else:
+                    list_path = os.path.join(tmpdir, 'cl.txt')
+                    with open(list_path, 'w') as f:
+                        for p in clip_paths: f.write(f"file '{p}'\n")
+                    subprocess.run([ffmpeg_path, '-y', '-f', 'concat', '-safe', '0',
+                                    '-i', list_path, '-c', 'copy', video_path],
+                                   capture_output=True, timeout=120)
+
+                # 오디오 저장 (WAV)
+                audio_path = os.path.join(tmpdir, 'audio.wav')
+                with open(audio_path, 'wb') as f:
+                    f.write(_b64.b64decode(audio_b64))
+
+                # SRT 자막 파일
+                srt_path = os.path.join(tmpdir, 'subs.srt')
+                with open(srt_path, 'w', encoding='utf-8') as f:
+                    for i, sub in enumerate(subtitles):
+                        f.write(f"{i+1}\n{_ms_to_srt(sub['start_ms'])} --> {_ms_to_srt(sub['end_ms'])}\n{sub['text']}\n\n")
+
+                # 병합: video + audio + soft subtitle track
+                out_path = os.path.join(tmpdir, 'output.mp4')
+                cmd = [ffmpeg_path, '-y',
+                       '-i', video_path, '-i', audio_path, '-i', srt_path,
+                       '-c:v', 'copy', '-c:a', 'aac',
+                       '-c:s', 'mov_text',
+                       '-map', '0:v:0', '-map', '1:a:0', '-map', '2:s:0',
+                       '-metadata:s:s:0', 'language=kor',
+                       '-shortest', out_path]
+                r = subprocess.run(cmd, capture_output=True, timeout=300)
+                if r.returncode != 0:
+                    # 자막 없이 재시도
+                    cmd2 = [ffmpeg_path, '-y', '-i', video_path, '-i', audio_path,
+                            '-c:v', 'copy', '-c:a', 'aac',
+                            '-map', '0:v:0', '-map', '1:a:0', '-shortest', out_path]
+                    r2 = subprocess.run(cmd2, capture_output=True, timeout=300)
+                    if r2.returncode != 0:
+                        _send_json(self, 500, {'error': r2.stderr.decode('utf-8','replace')[-400:]}); return
+
+                with open(out_path, 'rb') as f: mp4_data = f.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'video/mp4')
+                self.send_header('Content-Length', len(mp4_data))
+                self.send_header('Content-Disposition', 'attachment; filename="narration_merged.mp4"')
+                self.end_headers()
+                self.wfile.write(mp4_data)
+
+            except Exception as e:
+                _send_json(self, 500, {'error': str(e)})
+            finally:
+                shutil.rmtree(tmpdir, ignore_errors=True)
 
         # ── Grok 영상 URL 목록 → ffmpeg concat → MP4 반환 ──────────────
         elif self.path == '/api/proxy/grok-video-concat':

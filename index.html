@@ -100,9 +100,9 @@
     }
     #ytChatToggle:hover { transform: scale(1.08); }
     #ytChatWindow {
-      position: fixed; right: 90px; z-index: 999;
+      position: fixed; right: 16px; z-index: 999;
       top: calc(24px + 52px + 10px);
-      width: 520px;
+      width: min(520px, calc(100vw - 32px));
       height: min(700px, calc(100vh - 100px));
       background: #1e293b; border: 1px solid #334155;
       border-radius: 16px; flex-direction: column;
@@ -136,13 +136,13 @@
 
     /* ── 이미지 스크립트 채팅 위젯 ── */
     #scriptImgChat {
-      position: fixed; top: 24px; right: 24px; z-index: 100;
+      position: fixed; top: 24px; right: 16px; z-index: 100;
       display: flex; flex-direction: column; align-items: flex-end; gap: 10px;
       pointer-events: none;
     }
     #scriptImgChat > * { pointer-events: auto; }
     #scriptImgChatWindow {
-      width: 520px; height: min(700px, calc(100vh - 110px));
+      width: min(520px, calc(100vw - 32px)); height: min(700px, calc(100vh - 110px));
       background: #1e293b; border: 1px solid #334155;
       border-radius: 16px; display: flex; flex-direction: column;
       box-shadow: 0 20px 60px rgba(0,0,0,0.6);
@@ -184,9 +184,9 @@
     }
     #ytApiChatToggle:hover { transform: scale(1.08); }
     #ytApiChatWindow {
-      position: fixed; right: 156px; z-index: 999;
+      position: fixed; right: 16px; z-index: 999;
       top: calc(24px + 52px + 10px);
-      width: 540px;
+      width: min(540px, calc(100vw - 32px));
       height: min(720px, calc(100vh - 100px));
       background: #1e293b; border: 1px solid #334155;
       border-radius: 16px; flex-direction: column;
@@ -229,9 +229,9 @@
     }
     #subtitleRenderToggle:hover { transform: scale(1.08); }
     #subtitleRenderWindow {
-      position: fixed; right: 222px; z-index: 999;
+      position: fixed; right: 16px; z-index: 999;
       top: calc(24px + 52px + 10px);
-      width: 500px;
+      width: min(500px, calc(100vw - 32px));
       height: min(680px, calc(100vh - 100px));
       background: #1e293b; border: 1px solid #334155;
       border-radius: 16px; flex-direction: column;
@@ -257,9 +257,9 @@
     }
     #grokVideoToggle:hover { transform: scale(1.08); }
     #grokVideoWindow {
-      position: fixed; right: 288px; z-index: 999;
+      position: fixed; right: 16px; z-index: 999;
       top: calc(24px + 52px + 10px);
-      width: 520px;
+      width: min(520px, calc(100vw - 32px));
       height: min(720px, calc(100vh - 100px));
       background: #1e293b; border: 1px solid #334155;
       border-radius: 16px; flex-direction: column;
@@ -279,6 +279,34 @@
     }
     .grok-opt-btn.active { background: #e11d48; border-color: #e11d48; color: #fff; }
     .grok-opt-btn:hover:not(.active) { border-color: #e11d48; color: #fda4af; }
+
+    /* ── 나레이션 TTS 위젯 ── */
+    #ttsToggle {
+      position: fixed; top: 24px; right: 420px; z-index: 1000;
+      width: 52px; height: 52px; border-radius: 50%;
+      background: linear-gradient(135deg, #059669, #047857);
+      border: none; cursor: pointer; font-size: 22px;
+      box-shadow: 0 4px 20px rgba(5,150,105,0.5);
+      transition: transform 0.2s;
+    }
+    #ttsToggle:hover { transform: scale(1.08); }
+    #ttsWindow {
+      position: fixed; right: 16px; z-index: 999;
+      top: calc(24px + 52px + 10px);
+      width: min(520px, calc(100vw - 32px));
+      height: min(720px, calc(100vh - 100px));
+      background: #1e293b; border: 1px solid #334155;
+      border-radius: 16px; flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+      overflow: hidden; display: none;
+    }
+    #ttsWindow.open { display: flex; }
+    #ttsBody {
+      flex: 1; min-height: 0; overflow-y: auto; padding: 16px;
+    }
+    #ttsBody::-webkit-scrollbar { width: 6px; }
+    #ttsBody::-webkit-scrollbar-track { background: #0f172a; }
+    #ttsBody::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
 
     /* ── 경량 Vrew 위젯 ── */
     #vrewToggle {
@@ -1037,6 +1065,137 @@
     </div>
   </div>
 </div>
+<!-- ── 나레이션 TTS 패널 ── -->
+<div id="ttsWindow">
+  <!-- 헤더 -->
+  <div class="flex items-center justify-between px-4 py-3 border-b border-slate-700 flex-shrink-0">
+    <div>
+      <p class="text-sm font-bold text-emerald-300">🎙️ 나레이션 음성</p>
+      <p class="text-[11px] text-slate-500">미리 듣기 · Gemini TTS 생성 · 영상 병합</p>
+    </div>
+    <button id="ttsCloseBtn" class="text-slate-400 hover:text-white text-lg leading-none">✕</button>
+  </div>
+
+  <div id="ttsBody">
+
+    <!-- ① 음성 설정 -->
+    <div class="p-3 bg-slate-900/60 border border-slate-700 rounded-xl space-y-3">
+      <p class="text-[11px] font-bold text-emerald-300">음성 설정 (Gemini TTS)</p>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="block text-[10px] text-slate-400 mb-1">AI 음성</label>
+          <select id="ttsVoice" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500">
+            <option value="Kore">Kore — 차분한 여성</option>
+            <option value="Aoede">Aoede — 밝은 여성</option>
+            <option value="Leda">Leda — 젊은 여성</option>
+            <option value="Sulafat">Sulafat — 따뜻한 여성</option>
+            <option value="Charon">Charon — 안정된 남성</option>
+            <option value="Fenrir">Fenrir — 활기찬 남성</option>
+            <option value="Orus">Orus — 단호한 남성</option>
+            <option value="Puck">Puck — 경쾌한 남성</option>
+            <option value="Zephyr">Zephyr — 밝은 중성</option>
+          </select>
+          <button onclick="testTTSVoice()"
+            class="mt-1.5 w-full text-[10px] bg-emerald-900/60 hover:bg-emerald-800 text-emerald-300 font-bold px-2 py-1 rounded-lg transition">
+            🔊 이 음성으로 5초 테스트
+          </button>
+        </div>
+        <div>
+          <label class="block text-[10px] text-slate-400 mb-1">클립 길이 (자막 타이밍)</label>
+          <select id="ttsClipDur" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500">
+            <option value="5000">5초 / 장면</option>
+            <option value="10000" selected>10초 / 장면</option>
+          </select>
+        </div>
+      </div>
+      <!-- 미리듣기 속도 -->
+      <div class="flex items-center gap-3">
+        <label class="text-[10px] text-slate-400 whitespace-nowrap">미리듣기 속도</label>
+        <input id="ttsPreviewRate" type="range" min="0.5" max="2" step="0.1" value="1.0"
+          class="flex-1 accent-emerald-500" oninput="document.getElementById('ttsRateVal').textContent=this.value+'x'">
+        <span id="ttsRateVal" class="text-[11px] text-emerald-400 w-8 text-right">1.0x</span>
+      </div>
+    </div>
+
+    <!-- ② 카드별 나레이션 편집 -->
+    <div>
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-[11px] font-bold text-slate-300">장면별 나레이션 편집</p>
+        <button onclick="loadNarrationFromCards()"
+          class="text-[10px] bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold px-2.5 py-1 rounded-lg transition">
+          📋 카드 자막 불러오기
+        </button>
+      </div>
+      <div id="ttsSegments" class="space-y-2 max-h-48 overflow-y-auto pr-1"></div>
+      <p id="ttsSegEmpty" class="text-[11px] text-slate-500 py-2">카드 자막을 불러오면 장면별로 편집할 수 있습니다.</p>
+    </div>
+
+    <!-- ③ 전체 나레이션 텍스트 + 미리듣기 -->
+    <div>
+      <div class="flex items-center justify-between mb-1.5">
+        <p class="text-[11px] font-bold text-slate-300">전체 나레이션 텍스트</p>
+        <div class="flex gap-1.5">
+          <button onclick="previewFullTTS()"
+            class="text-[10px] bg-emerald-800/60 hover:bg-emerald-700 text-emerald-300 font-bold px-2.5 py-1 rounded-lg transition">
+            🔊 전체 미리듣기
+          </button>
+          <button onclick="stopTTSPreview()"
+            class="text-[10px] bg-slate-700 hover:bg-slate-600 text-slate-300 font-bold px-2 py-1 rounded-lg transition">
+            ⏹
+          </button>
+        </div>
+      </div>
+      <textarea id="ttsText" rows="5"
+        placeholder="나레이션 텍스트를 직접 입력하거나 카드 자막을 불러오세요…"
+        oninput="syncTextToSegments()"
+        class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-100
+               resize-none focus:outline-none focus:border-emerald-500"></textarea>
+    </div>
+
+    <!-- ④ Gemini TTS 생성 -->
+    <button id="ttsGenerateBtn" onclick="generateTTS()"
+      class="w-full bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600
+             text-white text-sm font-bold py-2.5 rounded-xl transition flex items-center justify-center gap-2">
+      🎙️ Gemini TTS 음성 생성
+    </button>
+
+    <!-- ⑤ 생성된 음성 플레이어 + 편집 재생성 -->
+    <div id="ttsAudioSection" class="hidden p-3 bg-slate-900/60 border border-emerald-800/50 rounded-xl space-y-3">
+      <div class="flex items-center justify-between">
+        <p class="text-[11px] font-bold text-emerald-400">✅ 생성된 음성</p>
+        <span id="ttsVoiceLabel" class="text-[10px] text-slate-500"></span>
+      </div>
+      <audio id="ttsAudio" controls class="w-full rounded-lg"></audio>
+      <div class="flex gap-2 flex-wrap">
+        <a id="ttsDownload" download="narration.wav"
+          class="text-xs bg-slate-700 hover:bg-slate-600 text-emerald-300 font-bold px-3 py-1.5 rounded-lg transition">
+          ⬇ WAV 다운로드
+        </a>
+        <button onclick="generateTTS()"
+          class="text-xs bg-emerald-800/60 hover:bg-emerald-700 text-emerald-300 font-bold px-3 py-1.5 rounded-lg transition">
+          🔄 텍스트 수정 후 재생성
+        </button>
+      </div>
+      <p class="text-[10px] text-slate-500">텍스트를 수정하고 재생성하면 새 음성으로 교체됩니다.</p>
+    </div>
+
+    <!-- ⑥ 영상 병합 -->
+    <div class="p-3 bg-slate-900/60 border border-slate-700 rounded-xl space-y-2">
+      <p class="text-[11px] font-bold text-slate-300">영상 + 음성 + 자막 병합</p>
+      <p class="text-[10px] text-slate-500">Grok 패널의 영상 + 생성된 음성 → 하나의 MP4</p>
+      <button id="ttsMergeBtn" onclick="mergeVideoWithTTS()"
+        class="w-full bg-gradient-to-r from-violet-700 to-purple-800 hover:from-violet-600 hover:to-purple-700
+               text-white text-xs font-bold py-2 rounded-xl transition">
+        🎬 영상 + 음성 병합 (ffmpeg)
+      </button>
+    </div>
+
+    <p id="ttsLog" class="text-[11px] text-slate-400 min-h-[16px]"></p>
+
+  </div>
+</div>
+<button id="ttsToggle" title="나레이션 음성 생성 (Gemini TTS)">🎙️</button>
+
 <button id="vrewToggle" title="경량 Vrew — 자막 편집 &amp; 렌더링">✂️</button>
 
 </body>
