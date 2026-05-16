@@ -3,112 +3,142 @@
 <head>
   <meta charset="UTF-8">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      width: 320px;
-      background: #0f1117;
-      color: #e2e8f0;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      font-size: 13px;
-    }
-    .header {
-      background: linear-gradient(135deg, #1e293b, #0f172a);
-      padding: 14px 16px;
-      border-bottom: 1px solid #1e293b;
-    }
-    .header h1 { font-size: 15px; font-weight: 700; color: #f8fafc; }
-    .header p  { font-size: 11px; color: #64748b; margin-top: 2px; }
-    .status-bar {
-      padding: 10px 16px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      border-bottom: 1px solid #1e293b;
-      background: #0d1117;
-    }
-    .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .dot.green  { background: #22c55e; box-shadow: 0 0 6px #22c55e88; }
-    .dot.yellow { background: #eab308; box-shadow: 0 0 6px #eab30888; }
-    .dot.red    { background: #ef4444; box-shadow: 0 0 6px #ef444488; }
-    .status-label { font-size: 12px; color: #94a3b8; }
-    .section { padding: 12px 16px; border-bottom: 1px solid #1e293b; }
-    .section-title { font-size: 11px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
-    .info-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-    .info-label { color: #64748b; font-size: 12px; }
-    .info-value { color: #cbd5e1; font-size: 12px; font-weight: 500; }
-    .badge {
-      font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 99px;
-    }
-    .badge.green  { background: #14532d; color: #4ade80; }
-    .badge.yellow { background: #422006; color: #fbbf24; }
-    .badge.gray   { background: #1e293b; color: #64748b; }
-    .btn {
-      width: 100%; padding: 9px; border-radius: 8px; border: none; cursor: pointer;
-      font-size: 13px; font-weight: 600; transition: all 0.15s;
-    }
-    .btn-primary   { background: #4f46e5; color: #fff; }
-    .btn-primary:hover { background: #4338ca; }
-    .btn-secondary { background: #1e293b; color: #94a3b8; margin-top: 6px; }
-    .btn-secondary:hover { background: #273344; color: #e2e8f0; }
-    .log-area {
-      background: #070b10;
-      border-radius: 6px;
-      padding: 8px;
-      max-height: 120px;
-      overflow-y: auto;
-      font-family: monospace;
-      font-size: 11px;
-      color: #4ade80;
-      line-height: 1.6;
-    }
-    .log-area .log-err  { color: #f87171; }
-    .log-area .log-info { color: #38bdf8; }
-    .log-area .log-warn { color: #fbbf24; }
-    .footer { padding: 10px 16px; text-align: center; }
-    .footer a { color: #4f46e5; text-decoration: none; font-size: 11px; }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { width:340px; background:#0f1117; color:#e2e8f0; font-family:-apple-system,sans-serif; font-size:13px; }
+
+    .header { background:linear-gradient(135deg,#1e293b,#0f172a); padding:14px 16px; border-bottom:1px solid #1e293b; display:flex; align-items:center; gap:10px; }
+    .header h1 { font-size:15px; font-weight:700; color:#f8fafc; }
+    .header p  { font-size:10px; color:#475569; }
+
+    .status-bar { padding:10px 16px; display:flex; align-items:center; gap:8px; background:#0d1117; border-bottom:1px solid #1e293b; }
+    .dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; transition:all .3s; }
+    .dot.green  { background:#22c55e; box-shadow:0 0 8px #22c55e99; }
+    .dot.yellow { background:#eab308; box-shadow:0 0 8px #eab30899; }
+    .dot.red    { background:#ef4444; }
+    .dot.gray   { background:#334155; }
+
+    .section { padding:10px 16px; border-bottom:1px solid #111827; }
+    .section-title { font-size:10px; font-weight:700; color:#334155; text-transform:uppercase; letter-spacing:.8px; margin-bottom:8px; }
+
+    .info-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:5px; }
+    .info-label { color:#475569; font-size:12px; }
+    .badge { font-size:10px; font-weight:600; padding:2px 8px; border-radius:99px; }
+    .badge.green  { background:#14532d; color:#4ade80; }
+    .badge.gray   { background:#1e293b; color:#475569; }
+    .badge.yellow { background:#422006; color:#fbbf24; }
+
+    .btn-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+    .btn { padding:8px 10px; border-radius:8px; border:none; cursor:pointer; font-size:12px; font-weight:600; transition:all .15s; width:100%; text-align:center; }
+    .btn-primary  { background:#4f46e5; color:#fff; }
+    .btn-primary:hover { background:#4338ca; }
+    .btn-green    { background:#166534; color:#4ade80; }
+    .btn-green:hover { background:#14532d; }
+    .btn-gray     { background:#1e293b; color:#94a3b8; }
+    .btn-gray:hover { background:#273344; }
+    .btn-orange   { background:#7c2d12; color:#fb923c; }
+    .btn-orange:hover { background:#9a3412; }
+    .btn-full     { grid-column:1/-1; }
+
+    .tab-bar { display:flex; border-bottom:1px solid #1e293b; }
+    .tab { flex:1; padding:8px; text-align:center; font-size:11px; font-weight:600; cursor:pointer; color:#475569; border-bottom:2px solid transparent; transition:all .15s; }
+    .tab.active { color:#818cf8; border-bottom-color:#818cf8; }
+
+    .tab-panel { display:none; }
+    .tab-panel.active { display:block; }
+
+    .log-area { background:#070b10; border-radius:6px; padding:8px; height:110px; overflow-y:auto; font-family:monospace; font-size:11px; line-height:1.6; }
+    .log-area .err  { color:#f87171; }
+    .log-area .info { color:#38bdf8; }
+    .log-area .ok   { color:#4ade80; }
+    .log-area .warn { color:#fbbf24; }
+
+    .dom-result { background:#0a0f1a; border-radius:8px; padding:10px; margin-top:8px; font-size:11px; max-height:180px; overflow-y:auto; }
+    .dom-item { padding:4px 6px; border-radius:4px; margin-bottom:3px; background:#111827; cursor:pointer; }
+    .dom-item:hover { background:#1e293b; }
+    .dom-item .tag { color:#818cf8; font-weight:700; font-size:10px; }
+    .dom-item .label { color:#94a3b8; }
+    .dom-item .visible { color:#4ade80; font-size:10px; }
+
+    .test-section { padding:10px 16px; }
+    .test-input { width:100%; padding:7px 10px; background:#111827; border:1px solid #1e293b; border-radius:6px; color:#e2e8f0; font-size:12px; resize:none; }
+    .test-input:focus { outline:none; border-color:#4f46e5; }
+    select.test-input { cursor:pointer; }
   </style>
 </head>
 <body>
   <div class="header">
-    <h1>🌉 Grok Bridge</h1>
-    <p>YouTube 소재 발굴 도구 ↔ grok.com 연결</p>
+    <div>
+      <h1>🌉 Grok Bridge v1.0</h1>
+      <p>YouTube 소재 발굴 도구 ↔ grok.com 자동 연결</p>
+    </div>
   </div>
 
   <div class="status-bar">
-    <div class="dot" id="connDot"></div>
-    <span class="status-label" id="connLabel">상태 확인 중...</span>
+    <div class="dot gray" id="connDot"></div>
+    <span style="font-size:12px;color:#94a3b8" id="connLabel">상태 확인 중...</span>
   </div>
 
-  <div class="section">
-    <div class="section-title">연결 정보</div>
-    <div class="info-row">
-      <span class="info-label">웹앱 탭</span>
-      <span class="badge" id="appBadge">-</span>
+  <div class="tab-bar">
+    <div class="tab active" data-tab="status">📊 상태</div>
+    <div class="tab" data-tab="test">🧪 테스트</div>
+    <div class="tab" data-tab="dom">🔍 DOM 검사</div>
+    <div class="tab" data-tab="log">📋 로그</div>
+  </div>
+
+  <!-- 상태 탭 -->
+  <div class="tab-panel active" id="tab-status">
+    <div class="section">
+      <div class="section-title">연결 상태</div>
+      <div class="info-row"><span class="info-label">웹앱 (localhost:8765)</span><span class="badge gray" id="appBadge">미감지</span></div>
+      <div class="info-row"><span class="info-label">grok.com 탭</span><span class="badge gray" id="grokBadge">미감지</span></div>
+      <div class="info-row"><span class="info-label">대기 중인 작업</span><span style="color:#cbd5e1;font-size:12px" id="pendingCount">0</span></div>
     </div>
-    <div class="info-row">
-      <span class="info-label">grok.com 탭</span>
-      <span class="badge" id="grokBadge">-</span>
+    <div class="section">
+      <div class="section-title">빠른 실행</div>
+      <div class="btn-grid">
+        <button class="btn btn-primary" id="openGrokBtn">🔗 grok.com 열기</button>
+        <button class="btn btn-green"   id="openAppBtn">🖥 웹앱 열기</button>
+        <button class="btn btn-gray btn-full" id="refreshBtn">🔄 상태 새로고침</button>
+      </div>
     </div>
-    <div class="info-row">
-      <span class="info-label">대기 중인 작업</span>
-      <span class="info-value" id="pendingCount">0</span>
+  </div>
+
+  <!-- 테스트 탭 -->
+  <div class="tab-panel" id="tab-test">
+    <div class="test-section">
+      <div class="section-title" style="margin-bottom:8px">테스트 생성</div>
+      <select class="test-input" id="testMode" style="margin-bottom:6px">
+        <option value="text_to_image">🖼 텍스트 → 이미지</option>
+        <option value="text_to_video">🎥 텍스트 → 비디오</option>
+      </select>
+      <textarea class="test-input" id="testPrompt" rows="3" placeholder="프롬프트 입력 (영어 권장)&#10;예: A beautiful sunset over mountains">A beautiful sunset over mountains, photorealistic</textarea>
+      <div class="btn-grid" style="margin-top:6px">
+        <button class="btn btn-primary btn-full" id="testGenerateBtn">▶ 테스트 실행</button>
+      </div>
+      <div id="testResult" style="margin-top:8px;font-size:11px;color:#64748b;display:none"></div>
     </div>
   </div>
 
-  <div class="section">
-    <div class="section-title">제어</div>
-    <button class="btn btn-primary" id="openGrokBtn">🔗 grok.com 열기</button>
-    <button class="btn btn-secondary" id="openAppBtn">🖥 웹앱 열기 (localhost:8765)</button>
-    <button class="btn btn-secondary" id="refreshBtn">🔄 상태 새로고침</button>
+  <!-- DOM 검사 탭 -->
+  <div class="tab-panel" id="tab-dom">
+    <div class="section">
+      <div class="section-title">grok.com DOM 자동 감지</div>
+      <div class="btn-grid">
+        <button class="btn btn-orange" id="inspectBtn">🔍 DOM 스캔</button>
+        <button class="btn btn-gray"   id="clearDomBtn">🗑 결과 지우기</button>
+      </div>
+      <div id="domResult" class="dom-result" style="display:none">
+        <div style="color:#475569;font-size:11px">grok.com 탭에서 DOM 스캔을 실행하세요</div>
+      </div>
+    </div>
   </div>
 
-  <div class="section">
-    <div class="section-title">로그</div>
-    <div class="log-area" id="logArea"><span class="log-info">초기화 중...</span></div>
-  </div>
-
-  <div class="footer">
-    <a href="#" id="inspectLink">DOM 셀렉터 검사 모드</a>
+  <!-- 로그 탭 -->
+  <div class="tab-panel" id="tab-log">
+    <div class="section">
+      <div class="log-area" id="logArea"></div>
+      <button class="btn btn-gray btn-full" id="clearLogBtn" style="margin-top:6px">🗑 로그 지우기</button>
+    </div>
   </div>
 
   <script src="popup.js"></script>
