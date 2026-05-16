@@ -1,250 +1,261 @@
 // ── Grok Bridge — grok.com Content Script ───────────────────────────────────
-// DOM 셀렉터는 playwright로 grok.com 실제 스캔하여 확인된 값 사용
+// 셀렉터 출처: Grok Automation v2.3.9 remote config (configs.kylenguyen.me)
 (function () {
   'use strict';
 
-  // ── 확인된 실제 셀렉터 ──────────────────────────────────────────────────
+  // ── 실제 검증된 셀렉터 ──────────────────────────────────────────────────
   const SEL = {
-    // 메인 텍스트 입력 (확인됨)
-    input: [
-      'textarea[placeholder="What do you want to know?"]',
-      '[aria-label="Ask Grok anything"]',
-      'textarea[placeholder*="want to know"]',
-      'textarea[placeholder*="Ask"]',
-      'div[contenteditable=true][aria-label*="Ask"]',
-      'div[contenteditable=true]',
-      'textarea',
-    ],
-    // 미디어 생성 모드 전환 버튼 (확인됨: aria-label="Imagine")
-    imagineBtn: [
-      'button[aria-label="Imagine"]',
-      'button[aria-label*="Imagine"]',
-      'button[aria-label*="imagine"]',
-      'a[aria-label="Imagine"]',
-      '[aria-label="Imagine"]',
-    ],
-    // 파일 첨부 버튼 (확인됨)
-    attachBtn: [
-      'button[aria-label="Attach"]',
-      'button[aria-label*="Attach"]',
-      '[aria-label="Attach"]',
-    ],
-    // 드롭 업로드 영역 (확인됨)
-    dropZone: [
-      '[data-testid="drop-container"]',
-      '[data-testid="drop-ui"]',
-      '[data-testid*="drop"]',
-    ],
-    // 전송 버튼 (aria-label 미확인 → 여러 전략)
-    submit: [
-      'button[aria-label*="Send"]',
-      'button[aria-label*="send"]',
-      'button[type=submit]',
-      'button[data-testid*="send"]',
-    ],
-    // 생성된 비디오/이미지
-    video: 'video[src], video source[src]',
-    image: 'img[src]',
+    imagineLink:      `a[href="/imagine"]`,
+    promptEditable:   `form div[contenteditable='true']`,   // :eq(0) → first()
+    promptDropArea:   `div[data-testid='drop-ui'] textarea`, // drop-ui 모드
+    submitBtn:        `button.rounded-full:has(path[d="M6 11L12 5M12 5L18 11M12 5V19"])`,
+    fileInput:        `input[type="file"]`,
+    videoModeBtn:     `button:has(path[d^="M12 4C14.4853 4 16.5 6.01472"])`,
+    imageModeBtn:     `button:has(path[d^="M14.0996 2.5"])`,
+    modeSelectTrigger:`#model-select-trigger, button[aria-expanded]:has(svg.transition-transform)`,
+    mainArticle:      `div[id^="imagine-masonry-section-"], main article`,
+    downloadBtn:      `button:has(path[d^="M11.996 3v12m0 0-5-5m5 5"])`,
+    imageUploading:   `span.animate-pulse, div.animate-spin`,
+    percentageDiv:    `button div`,
+    generateVideoBtn: `button[data-filmstrip-item="true"]:has(div.animate-spin)`,
   };
 
-  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-  function log(...a) { console.log('[GrokBridge]', ...a); }
+  // 비디오 URL 패턴 (confirmed)
+  const VIDEO_SRC_REGEX = /generated\/([^/]+)\/generated_video(_hd)?\.mp4/;
+  const VIDEO_SHARE_TPL = 'https://imagine-public.x.ai/imagine-public/share-videos/{uuid}.mp4';
 
-  // ── 요소 탐색 (가시성 체크, 최대 대기) ────────────────────────────────
-  async function waitFor(selList, timeoutMs = 10000) {
-    const sels = Array.isArray(selList) ? selList : [selList];
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+  function log(...a)  { console.log('[GrokBridge]', ...a); }
+
+  // ── 요소 찾기 (표준 CSS + :eq() 에뮬레이션) ──────────────────────────
+  function qFirst(sel) {
+    // :eq(n) 에뮬레이션
+    const eqMatch = sel.match(/^(.*):eq\((\d+)\)(.*)$/);
+    if (eqMatch) {
+      const [, base, idx, rest] = eqMatch;
+      const els = [...document.querySelectorAll(base + rest)];
+      return els[parseInt(idx)] || null;
+    }
+    return document.querySelector(sel);
+  }
+
+  function qAll(sel) {
+    const eqMatch = sel.match(/^(.*):eq\((\d+)\)(.*)$/);
+    if (eqMatch) {
+      const [, base, idx, rest] = eqMatch;
+      return [document.querySelectorAll(base + rest)[parseInt(idx)]].filter(Boolean);
+    }
+    return [...document.querySelectorAll(sel)];
+  }
+
+  async function waitFor(sel, timeoutMs = 10000) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      for (const sel of sels) {
-        try {
-          const el = document.querySelector(sel);
-          if (el && el.offsetParent !== null) return el;
-        } catch {}
-      }
+      const el = qFirst(sel);
+      if (el && el.offsetParent !== null) return el;
       await sleep(300);
     }
-    // 마지막 시도 — 비가시 요소도 허용
-    for (const sel of sels) {
-      try { const el = document.querySelector(sel); if (el) return el; } catch {}
-    }
-    return null;
+    return qFirst(sel); // 마지막 시도 (비가시 허용)
   }
 
-  // ── React 인풋 값 주입 ────────────────────────────────────────────────
-  function setInputValue(el, text) {
-    el.focus();
-    if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
-      const proto  = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-      const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-      if (setter) setter.call(el, text); else el.value = text;
-      el.dispatchEvent(new Event('input',  { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-    } else if (el.isContentEditable) {
-      document.execCommand('selectAll', false);
-      document.execCommand('delete', false);
-      document.execCommand('insertText', false, text);
-      el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
-    }
-    log(`입력 완료: "${text.slice(0, 40)}..."`);
-  }
-
-  // ── 전송 버튼 찾아 클릭 ───────────────────────────────────────────────
-  async function sendPrompt(inputEl) {
-    // 1) 확정 셀렉터
-    let btn = await waitFor(SEL.submit, 3000);
-
-    // 2) 인풋 근처 버튼
-    if (!btn) {
-      btn = inputEl?.closest('form')?.querySelector('button:not([disabled])')
-         || inputEl?.parentElement?.querySelector('button:not([disabled])')
-         || inputEl?.parentElement?.parentElement?.querySelector('button:not([disabled])');
-    }
-
-    // 3) SVG 버튼 (화살표 아이콘)
-    if (!btn) {
-      btn = [...document.querySelectorAll('button')].find(b =>
-        b.querySelector('svg') && !b.disabled && b.offsetParent !== null &&
-        !b.getAttribute('aria-label')?.match(/attach|model|dictation|voice|notification/i)
-      );
-    }
-
-    if (btn) {
-      btn.removeAttribute('disabled');
-      btn.click();
-      log('전송 버튼 클릭:', btn.getAttribute('aria-label') || btn.textContent.slice(0, 20));
+  // ── 1단계: /imagine 페이지로 이동 ────────────────────────────────────
+  async function redirectToImagine() {
+    if (location.href.includes('/imagine') && !location.href.includes('/imagine/')) {
+      log('이미 /imagine 페이지');
       return true;
     }
-
-    // 4) Enter 키 fallback
-    inputEl.dispatchEvent(new KeyboardEvent('keydown', { key:'Enter', code:'Enter', keyCode:13, bubbles:true }));
-    log('Enter 키로 전송');
-    return true;
+    const link = await waitFor(SEL.imagineLink, 8000);
+    if (link) {
+      link.click();
+      log('/imagine 링크 클릭');
+      await sleep(2000);
+      return true;
+    }
+    // fallback: 직접 이동
+    location.href = 'https://grok.com/imagine';
+    await sleep(3000);
+    return location.href.includes('/imagine');
   }
 
-  // ── 이미지 업로드 ────────────────────────────────────────────────────
+  // ── 2단계: 모드 선택 (Video / Image) ─────────────────────────────────
+  async function selectMode(mode) {
+    // 모드 셀렉터 트리거 열기
+    const trigger = await waitFor(SEL.modeSelectTrigger, 5000);
+    if (trigger) {
+      trigger.click();
+      await sleep(800);
+    }
+
+    if (mode === 'text_to_video' || mode === 'frame_to_video') {
+      const btn = await waitFor(SEL.videoModeBtn, 3000);
+      if (btn) { btn.click(); log('Video 모드 선택'); await sleep(800); }
+    } else {
+      const btn = await waitFor(SEL.imageModeBtn, 3000);
+      if (btn) { btn.click(); log('Image 모드 선택'); await sleep(800); }
+    }
+  }
+
+  // ── 3단계: 이미지 업로드 ─────────────────────────────────────────────
   async function uploadImage(dataUrl) {
     const res  = await fetch(dataUrl);
     const blob = await res.blob();
-    const file = new File([blob], 'image.jpg', { type: blob.type || 'image/jpeg' });
+    const file = new File([blob], `image_${Date.now()}.jpg`, { type: blob.type || 'image/jpeg' });
 
-    // 1) Attach 버튼 클릭
-    const attachBtn = await waitFor(SEL.attachBtn, 3000);
-    if (attachBtn) {
-      attachBtn.click();
-      await sleep(1000);
-    }
-
-    // 2) 파일 인풋
-    const fileInput = document.querySelector('input[type=file]');
+    const fileInput = await waitFor(SEL.fileInput, 5000);
     if (fileInput) {
       const dt = new DataTransfer();
       dt.items.add(file);
       fileInput.files = dt.files;
       fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-      log('파일 인풋으로 업로드');
-      await sleep(2000);
+      log('파일 인풋 업로드 완료');
+      // 업로드 완료 대기 (animate-pulse 사라질 때까지)
+      for (let i = 0; i < 20; i++) {
+        await sleep(500);
+        if (!document.querySelector(SEL.imageUploading)) break;
+      }
+      await sleep(500);
       return true;
     }
 
-    // 3) 드롭존
-    const dropZone = await waitFor(SEL.dropZone, 3000);
+    // 드래그앤드롭 fallback
+    const dropZone = document.querySelector('[data-testid="drop-ui"], [data-testid="drop-container"]');
     if (dropZone) {
       const dt = new DataTransfer();
       dt.items.add(file);
-      ['dragenter','dragover','drop'].forEach(t =>
+      ['dragenter', 'dragover', 'drop'].forEach(t =>
         dropZone.dispatchEvent(new DragEvent(t, { bubbles: true, dataTransfer: dt }))
       );
-      log('드래그앤드롭으로 업로드');
+      log('드래그앤드롭 업로드');
       await sleep(2000);
       return true;
     }
 
-    log('⚠️ 업로드 영역 미발견');
+    log('⚠️ 업로드 방법 없음');
     return false;
   }
 
-  // ── 결과 감지 ─────────────────────────────────────────────────────────
-  function waitForNewContent(snap) {
+  // ── 4단계: 프롬프트 입력 ─────────────────────────────────────────────
+  async function fillPrompt(text) {
+    // drop-ui 모드 우선, 없으면 contenteditable
+    let inputEl = qFirst(SEL.promptDropArea) || await waitFor(SEL.promptEditable, 8000);
+    if (!inputEl) throw new Error('프롬프트 입력창을 찾지 못했습니다');
+
+    inputEl.focus();
+    await sleep(200);
+
+    if (inputEl.tagName === 'TEXTAREA') {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+      if (setter) setter.call(inputEl, text); else inputEl.value = text;
+      inputEl.dispatchEvent(new Event('input',  { bubbles: true }));
+      inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+    } else if (inputEl.isContentEditable) {
+      document.execCommand('selectAll', false);
+      document.execCommand('delete',    false);
+      document.execCommand('insertText', false, text);
+      inputEl.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+    }
+
+    log(`프롬프트 입력 완료: "${text.slice(0, 50)}"`);
+    await sleep(500);
+    return inputEl;
+  }
+
+  // ── 5단계: 전송 ──────────────────────────────────────────────────────
+  async function submit(inputEl) {
+    const btn = await waitFor(SEL.submitBtn, 3000);
+    if (btn) {
+      btn.removeAttribute('disabled');
+      btn.click();
+      log('전송 버튼 클릭 (SVG rounded-full)');
+      return;
+    }
+    // fallback: Enter 키
+    inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+    log('Enter 키 전송');
+  }
+
+  // ── 6단계: 결과 대기 ────────────────────────────────────────────────
+  function waitForResult(timeoutMs = 4 * 60 * 1000) {
     return new Promise((resolve, reject) => {
-      const deadline = Date.now() + 4 * 60 * 1000;
+      const deadline = Date.now() + timeoutMs;
+      let lastArticle = document.querySelectorAll('main article, div[id^="imagine-masonry-section-"]').length;
 
       const check = () => {
-        if (Date.now() > deadline) { obs.disconnect(); return reject(new Error('생성 시간 초과 (4분)')); }
+        if (Date.now() > deadline) { obs.disconnect(); return reject(new Error('생성 시간 초과')); }
 
-        const videos = [...document.querySelectorAll('video')].map(v => v.src || v.currentSrc).filter(Boolean);
-        const imgs   = [...document.querySelectorAll('img[src]')].map(i => i.src).filter(s =>
-          s.length > 60 &&
-          !s.includes('icon') && !s.includes('logo') && !s.includes('avatar') &&
-          !s.includes('grok.com/favicon') && !s.includes('x.com/favicon')
-        );
+        // 비디오 URL 감지 (src 패턴으로)
+        const videos = [...document.querySelectorAll('video[src]')].map(v => v.src).filter(s => VIDEO_SRC_REGEX.test(s));
+        if (videos.length) { obs.disconnect(); return resolve({ url: videos[videos.length-1], mediaType: 'video' }); }
 
-        if (videos.length > snap.videos) {
-          obs.disconnect();
-          return resolve({ url: videos[videos.length - 1], mediaType: 'video' });
+        // source 태그
+        const sources = [...document.querySelectorAll('video source[src]')].map(s => s.src).filter(s => VIDEO_SRC_REGEX.test(s));
+        if (sources.length) { obs.disconnect(); return resolve({ url: sources[sources.length-1], mediaType: 'video' }); }
+
+        // 새 article (이미지)
+        const arts = document.querySelectorAll('main article, div[id^="imagine-masonry-section-"]').length;
+        if (arts > lastArticle) {
+          lastArticle = arts;
+          const imgs = [...document.querySelectorAll('main article img[src], div[id^="imagine-masonry-section-"] img[src]')]
+            .map(i => i.src).filter(s => s.length > 60 && !s.includes('icon'));
+          if (imgs.length) { obs.disconnect(); return resolve({ url: imgs[imgs.length-1], mediaType: 'image' }); }
         }
-        if (imgs.length > snap.imgs) {
-          obs.disconnect();
-          return resolve({ url: imgs[imgs.length - 1], mediaType: 'image' });
+
+        // 생성 % 완료 감지
+        const pctEl = document.querySelector(SEL.percentageDiv);
+        if (pctEl?.textContent?.includes('100%')) {
+          // 비디오 완료
+          setTimeout(() => {
+            const v = [...document.querySelectorAll('video source[src], video[src]')]
+              .map(el => el.src).filter(s => s.length > 30)[0];
+            obs.disconnect();
+            resolve({ url: v || '', mediaType: 'video' });
+          }, 2000);
         }
       };
 
       const obs = new MutationObserver(check);
       obs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
-      setInterval(check, 2000);
-      check();
+      const timer = setInterval(() => {
+        check();
+        if (Date.now() > deadline) clearInterval(timer);
+      }, 2000);
     });
   }
 
-  // ── 메인 생성 플로우 ──────────────────────────────────────────────────
+  // ── 메인 생성 플로우 ─────────────────────────────────────────────────
   async function doGenerate(job) {
     const { jobId, mode, prompt, imageDataUrl } = job;
-    log(`작업 시작 [${mode}]: "${prompt.slice(0, 50)}"`);
+    log(`[${jobId}] 시작 — mode=${mode}, prompt="${prompt.slice(0, 50)}"`);
 
     try {
-      // 1. 페이지 준비 대기
+      // 1. /imagine 페이지로 이동
+      const redirected = await redirectToImagine();
+      if (!redirected) throw new Error('/imagine 페이지로 이동 실패');
       await sleep(1500);
 
-      // 2. 이미지/영상 생성 모드: "Imagine" 버튼 클릭 (확인된 aria-label)
-      if (['text_to_image', 'text_to_video', 'frame_to_video', 'image_to_image'].includes(mode)) {
-        const imagineBtn = await waitFor(SEL.imagineBtn, 5000);
-        if (imagineBtn) {
-          imagineBtn.click();
-          log('"Imagine" 버튼 클릭 → 미디어 모드 전환');
-          await sleep(1500);
-        } else {
-          log('⚠️ Imagine 버튼 미발견 — 채팅 모드로 진행');
-        }
-      }
+      // 2. 모드 선택
+      await selectMode(mode);
 
       // 3. 이미지 업로드 (frame_to_video / image_to_image)
       if (imageDataUrl && ['frame_to_video', 'image_to_image'].includes(mode)) {
         await uploadImage(imageDataUrl);
       }
 
-      // 4. 입력창 찾기
-      const inputEl = await waitFor(SEL.input, 10000);
-      if (!inputEl) throw new Error('입력창을 찾지 못했습니다. grok.com에 로그인 했는지 확인해주세요.');
-      log(`입력창 발견: ${inputEl.tagName} placeholder="${inputEl.placeholder || inputEl.getAttribute('aria-label')}"`);
+      // 4. 프롬프트 입력
+      const inputEl = await fillPrompt(prompt);
 
-      // 5. 현재 미디어 개수 스냅샷
-      const snap = {
-        videos: document.querySelectorAll('video[src]').length,
-        imgs:   [...document.querySelectorAll('img[src]')].filter(i => i.src.length > 60).length,
-      };
+      // 5. 현재 상태 스냅샷
+      const beforeArts = document.querySelectorAll('main article, div[id^="imagine-masonry-section-"]').length;
 
-      // 6. 프롬프트 입력
-      setInputValue(inputEl, prompt);
-      await sleep(800);
-
-      // 7. 전송
-      await sendPrompt(inputEl);
+      // 6. 전송
+      await submit(inputEl);
       log('전송 완료. 결과 대기 중...');
 
-      // 8. 결과 대기
+      // 7. 결과 대기
       await sleep(3000);
-      const result = await waitForNewContent(snap);
+      const result = await waitForResult();
 
-      log(`✅ 생성 완료: ${result.mediaType} — ${result.url.slice(0, 80)}`);
+      log(`✅ 완료: ${result.mediaType} — ${result.url.slice(0, 80)}`);
       return { jobId, url: result.url, mediaType: result.mediaType };
 
     } catch (e) {
@@ -253,12 +264,12 @@
     }
   }
 
-  // ── DOM 스냅샷 (팝업 DOM 검사용) ──────────────────────────────────────
+  // ── DOM 스냅샷 (팝업 검사용) ─────────────────────────────────────────
   function snapshotDOM() {
-    const q = sel => [...document.querySelectorAll(sel)];
     return {
       url: location.href,
-      inputs: q('textarea, input[type=text], div[contenteditable=true]').map(el => ({
+      isImaginePage: location.href.includes('/imagine'),
+      inputs: [...document.querySelectorAll('textarea, input[type=text], div[contenteditable=true]')].map(el => ({
         tag: el.tagName,
         id: el.id || '',
         placeholder: (el.getAttribute('placeholder') || '').slice(0, 60),
@@ -267,18 +278,24 @@
         visible: el.offsetParent !== null,
         className: (el.className?.toString() || '').slice(0, 80),
       })),
-      buttons: q('button').filter(b => b.offsetParent !== null).slice(0, 20).map(b => ({
+      buttons: [...document.querySelectorAll('button')].filter(b => b.offsetParent !== null).slice(0, 20).map(b => ({
         text: b.textContent.trim().slice(0, 50),
         ariaLabel: (b.getAttribute('aria-label') || '').slice(0, 50),
         dataTestId: b.getAttribute('data-testid') || '',
         disabled: b.disabled,
       })),
-      videos: q('video').map(v => v.src || v.currentSrc).filter(Boolean),
+      videos: [...document.querySelectorAll('video')].map(v => v.src || v.currentSrc).filter(Boolean),
+      confirmedSelectors: {
+        imagineLink:    !!document.querySelector(`a[href="/imagine"]`),
+        promptEditable: !!document.querySelector(`form div[contenteditable='true']`),
+        submitBtn:      !!document.querySelector(`button.rounded-full`),
+        fileInput:      !!document.querySelector(`input[type="file"]`),
+      },
       ts: Date.now(),
     };
   }
 
-  // ── 메시지 수신 ───────────────────────────────────────────────────────
+  // ── 메시지 수신 ──────────────────────────────────────────────────────
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'DO_GENERATE') {
       doGenerate(msg).then(result => {
@@ -287,32 +304,27 @@
       });
       return true;
     }
-
     if (msg.type === 'INSPECT_DOM') {
       sendResponse(snapshotDOM());
       return true;
     }
-
     if (msg.type === 'HIGHLIGHT_EL') {
       document.querySelectorAll('[data-grok-hi]').forEach(el => {
-        el.style.outline = '';
-        delete el.dataset.grokHi;
+        el.style.outline = ''; delete el.dataset.grokHi;
       });
       try {
-        const el = document.querySelector(msg.selector);
+        const el = qFirst(msg.selector);
         if (el) {
           el.style.outline = '3px solid #22c55e';
           el.dataset.grokHi = '1';
           el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          sendResponse({ found: true, tag: el.tagName, text: el.textContent.slice(0, 50) });
-        } else {
-          sendResponse({ found: false });
-        }
+          sendResponse({ found: true, tag: el.tagName });
+        } else { sendResponse({ found: false }); }
       } catch (e) { sendResponse({ found: false, error: e.message }); }
       return true;
     }
   });
 
   log('✅ content_grok.js 로드됨 @', location.href);
-  log('확인된 셀렉터: textarea[placeholder="What do you want to know?"], button[aria-label="Imagine"]');
+  log('검증된 셀렉터: imagineLink, promptContentEditable, submitBtn(SVG), fileInput');
 })();
