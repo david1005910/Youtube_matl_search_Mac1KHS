@@ -248,7 +248,7 @@ class Handler(SimpleHTTPRequestHandler):
 
         elif self.path == '/api/proxy/gemini-image':
             data = json.loads(body_raw)
-            api_key = load_env().get('GEMINI_API_KEY', '')
+            api_key = data.get('geminiApiKey', '').strip() or load_env().get('GEMINI_API_KEY', '')
             if not api_key:
                 _send_json(self, 400, {'error': 'GEMINI_API_KEY not set'}); return
 
