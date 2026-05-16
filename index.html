@@ -795,8 +795,11 @@
 <div id="grokVideoWindow">
   <div class="flex items-center justify-between px-4 py-3 border-b border-slate-700 flex-shrink-0">
     <div>
-      <p class="text-sm font-bold text-rose-300">🎥 Grok 영상 생성 (xAI)</p>
-      <p class="text-[11px] text-slate-500">텍스트 또는 이미지로 AI 영상 자동 생성</p>
+      <div class="flex items-center gap-2 flex-wrap">
+        <p class="text-sm font-bold text-rose-300">🎥 Grok 영상 생성</p>
+        <span id="grokBridgeBadge" class="text-[10px] bg-slate-700 text-slate-400 px-2 py-0.5 rounded-full">🌉 Bridge 미연결</span>
+      </div>
+      <p class="text-[11px] text-slate-500">Extension 연결 시 grok.com 계정으로 무료 생성</p>
     </div>
     <button id="grokVideoCloseBtn" class="text-slate-400 hover:text-white text-lg leading-none">✕</button>
   </div>
