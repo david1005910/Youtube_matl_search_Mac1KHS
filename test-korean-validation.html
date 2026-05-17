@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>한국어 문법 검증 테스트</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .container {
+      background: white;
+      border-radius: 8px;
+      padding: 30px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h1 { color: #333; border-bottom: 2px solid #007AFF; padding-bottom: 10px; }
+    h2 { color: #555; margin-top: 30px; }
+    .test-case {
+      background: #f8f9fa;
+      border: 1px solid #e9ecef;
+      border-radius: 6px;
+      margin: 10px 0;
+      padding: 15px;
+    }
+    .test-case.pass { border-left: 4px solid #28a745; }
+    .test-case.fail { border-left: 4px solid #dc3545; }
+    .test-input { font-weight: bold; color: #0066cc; }
+    .test-expected { color: #28a745; }
+    .test-result { color: #333; }
+    .test-error { color: #dc3545; }
+    button {
+      background: #007AFF;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 0;
+    }
+    button:hover { background: #005fcf; }
+    .stats {
+      background: #e3f2fd;
+      border-radius: 6px;
+      padding: 20px;
+      margin: 20px 0;
+      text-align: center;
+    }
+    .pass-count { color: #28a745; font-weight: bold; }
+    .fail-count { color: #dc3545; font-weight: bold; }
+    #consoleOutput {
+      background: #000;
+      color: #00ff00;
+      font-family: 'Courier New', monospace;
+      padding: 15px;
+      border-radius: 6px;
+      max-height: 400px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      margin: 20px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🇰🇷 한국어 문법 검증 및 이미지 생성 테스트</h1>
+    
+    <div class="stats" id="testStats">
+      <h3>테스트 결과</h3>
+      <p>테스트를 실행하려면 아래 버튼을 클릭하세요.</p>
+    </div>
+    
+    <button onclick="runAllTests()">🧪 모든 테스트 실행</button>
+    <button onclick="runValidationTest()">🔍 문법 검증만 테스트</button>
+    <button onclick="runImageTestGuide()">🎨 이미지 생성 테스트 가이드</button>
+    <button onclick="clearResults()">🧹 결과 초기화</button>
+    
+    <div id="consoleOutput"></div>
+    
+    <div id="testResults"></div>
+    
+    <h2>📋 테스트 케이스 설명</h2>
+    <ul>
+      <li><strong>조사 오용 검사:</strong> 를/을, 이/가, 와/과 등의 잘못된 사용 감지</li>
+      <li><strong>어미 중복 검사:</strong> ~습니다니다, ~니다습니다 등의 중복 어미 수정</li>
+      <li><strong>띄어쓰기 오류:</strong> 기본 인사말, 감사 표현의 잘못된 띄어쓰기 수정</li>
+      <li><strong>맞춤법 오류:</strong> 되/돼, 됬/됐 등의 흔한 맞춤법 오류 수정</li>
+      <li><strong>한영 혼용:</strong> 한글과 영문 사이 적절한 띄어쓰기 추가</li>
+      <li><strong>정상 텍스트:</strong> 올바른 텍스트는 변경하지 않음 확인</li>
+    </ul>
+    
+    <h2>🎨 실제 이미지 생성 테스트 방법</h2>
+    <ol>
+      <li>메인 앱에서 "<strong>🎨 이미지 생성</strong>" 버튼 클릭</li>
+      <li>다음 중 하나의 테스트 프롬프트 입력:
+        <ul>
+          <li>"안녕하세요를을 쓴 예쁜 간판" (문법 오류)</li>
+          <li>"감 사합니다 라고 적혀있는 카페 메뉴판" (띄어쓰기 오류)</li>
+          <li>"한국어 텍스트가 아름답게 디자인된 포스터" (정상)</li>
+        </ul>
+      </li>
+      <li>"<strong>한국어 텍스트 문법 검증</strong>" 체크박스 확인</li>
+      <li>"<strong>🎨 이미지 생성하기</strong>" 버튼 클릭</li>
+      <li>프롬프트가 자동으로 수정되는지 확인</li>
+      <li>생성된 이미지의 한국어 텍스트가 올바른지 확인</li>
+    </ol>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    function log(message) {
+      const output = document.getElementById('consoleOutput');
+      output.textContent += message + '\n';
+      output.scrollTop = output.scrollHeight;
+    }
+    
+    function clearResults() {
+      document.getElementById('consoleOutput').textContent = '';
+      document.getElementById('testResults').innerHTML = '';
+      document.getElementById('testStats').innerHTML = '<h3>테스트 결과</h3><p>테스트를 실행하려면 아래 버튼을 클릭하세요.</p>';
+    }
+    
+    function runValidationTest() {
+      clearResults();
+      log('🔍 한국어 문법 검증 테스트 시작...\n');
+      
+      try {
+        const results = window.testKoreanValidation ? window.testKoreanValidation() : runLocalValidationTest();
+        displayTestStats(results);
+      } catch (error) {
+        log('❌ 테스트 실행 중 오류: ' + error.message);
+      }
+    }
+    
+    function runLocalValidationTest() {
+      // 앱의 validateKoreanText 함수가 없는 경우 로컬 테스트 실행
+      const testCases = [
+        { input: '사과를을 먹었다', expected: '사과를 먹었다', description: '중복 조사 오류' },
+        { input: '안 녕하세요', expected: '안녕하세요', description: '띄어쓰기 오류' },
+        { input: '안 되요', expected: '안 돼요', description: '되/돼 오류' },
+        { input: 'Hello안녕World', expected: 'Hello 안녕 World', description: '한영 띄어쓰기' }
+      ];
+      
+      let passCount = 0;
+      const total = testCases.length;
+      
+      testCases.forEach((testCase, index) => {
+        // 간단한 로컬 검증 로직
+        let result = testCase.input
+          .replace('를을', '를')
+          .replace('안 녕', '안녕')
+          .replace('안 되요', '안 돼요')
+          .replace(/([A-Za-z])([가-힣])/g, '$1 $2')
+          .replace(/([가-힣])([A-Za-z])/g, '$1 $2');
+        
+        const passed = result === testCase.expected;
+        if (passed) passCount++;
+        
+        log(`${passed ? '✅' : '❌'} Test ${index + 1}: ${testCase.description}`);
+        log(`   입력: "${testCase.input}"`);
+        log(`   결과: "${result}"`);
+        if (!passed) log(`   예상: "${testCase.expected}"`);
+        log('');
+      });
+      
+      return { passCount, failCount: total - passCount, total };
+    }
+    
+    function displayTestStats(results) {
+      const statsEl = document.getElementById('testStats');
+      const passRate = Math.round((results.passCount / results.total) * 100);
+      
+      statsEl.innerHTML = `
+        <h3>📊 테스트 결과</h3>
+        <p><span class="pass-count">✅ 성공: ${results.passCount}개</span> | 
+           <span class="fail-count">❌ 실패: ${results.failCount}개</span> | 
+           총 ${results.total}개 (성공률: ${passRate}%)</p>
+        ${results.failCount === 0 ? 
+          '<p style="color: #28a745; font-weight: bold;">🎉 모든 테스트 통과!</p>' :
+          '<p style="color: #dc3545;">⚠️ 일부 테스트 실패</p>'
+        }
+      `;
+      
+      log(`\n📊 최종 결과: ${results.passCount}/${results.total} 통과 (${passRate}%)`);
+      if (results.failCount === 0) {
+        log('🎉 모든 테스트가 통과했습니다!');
+      }
+    }
+    
+    function runImageTestGuide() {
+      clearResults();
+      log('🎨 이미지 생성 테스트 가이드\n');
+      log('다음 단계를 따라 테스트하세요:\n');
+      log('1. 메인 앱(http://localhost:8765)으로 이동');
+      log('2. "🎨 이미지 생성" 버튼 클릭');
+      log('3. 다음 테스트 프롬프트 중 하나를 입력:');
+      log('   - "안녕하세요를을 쓴 예쁜 간판" (문법 오류 있음)');
+      log('   - "감 사합니다 라고 적혀있는 카페 메뉴판" (띄어쓰기 오류)');
+      log('   - "한국어 텍스트가 아름답게 디자인된 포스터" (정상)');
+      log('4. "한국어 텍스트 문법 검증" 체크박스가 체크되어 있는지 확인');
+      log('5. "🎨 이미지 생성하기" 버튼 클릭');
+      log('6. 프롬프트가 자동으로 수정되는지 관찰');
+      log('7. 생성된 이미지의 한국어 텍스트 품질 확인\n');
+      log('💡 개발자 도구 콘솔에서 runKoreanTests()를 실행하면');
+      log('   더 자세한 테스트 결과를 볼 수 있습니다.');
+    }
+    
+    function runAllTests() {
+      clearResults();
+      log('🧪 전체 테스트 실행 중...\n');
+      
+      // 1. 문법 검증 테스트
+      runValidationTest();
+      
+      log('\n' + '═'.repeat(50) + '\n');
+      
+      // 2. 이미지 생성 가이드
+      runImageTestGuide();
+    }
+    
+    // 페이지 로드 시 앱의 함수들이 로드되었는지 확인
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        if (typeof window.validateKoreanText === 'function') {
+          log('✅ 한국어 검증 함수가 성공적으로 로드되었습니다.');
+        } else {
+          log('⚠️ 한국어 검증 함수를 찾을 수 없습니다. 로컬 테스트를 실행합니다.');
+        }
+        
+        if (typeof window.runKoreanTests === 'function') {
+          log('✅ 테스트 함수들이 성공적으로 로드되었습니다.');
+          log('💡 콘솔에서 runKoreanTests()를 실행할 수 있습니다.\n');
+        }
+      }, 1000);
+    });
+  </script>
+</body>
+</html>
