@@ -1,0 +1,53 @@
+{
+  "manifest_version": 3,
+  "name": "Flow Bridge - YouTube Tool Connector",
+  "version": "1.0.0",
+  "description": "YouTube 소재 발굴 도구와 Google Flow(labs.google)를 연결하여 AI 영상을 자동 생성합니다.",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "storage",
+    "activeTab",
+    "downloads"
+  ],
+  "host_permissions": [
+    "http://localhost:8765/*",
+    "http://localhost/*",
+    "https://labs.google/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost:8765/*",
+        "http://localhost/*"
+      ],
+      "js": ["content_app.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://labs.google/*"
+      ],
+      "js": ["content_flow.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Flow Bridge",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

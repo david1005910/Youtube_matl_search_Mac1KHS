@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { width:340px; background:#0f1117; color:#e2e8f0; font-family:-apple-system,sans-serif; font-size:13px; }
+    .header { background:linear-gradient(135deg,#064e3b,#065f46); padding:14px 16px; border-bottom:1px solid #065f46; display:flex; align-items:center; gap:10px; }
+    .header h1 { font-size:15px; font-weight:700; color:#f8fafc; }
+    .header p  { font-size:10px; color:#6ee7b7; }
+    .status-bar { padding:10px 16px; display:flex; align-items:center; gap:8px; background:#0d1117; border-bottom:1px solid #1e293b; }
+    .dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; transition:all .3s; }
+    .dot.green  { background:#22c55e; box-shadow:0 0 8px #22c55e99; }
+    .dot.yellow { background:#eab308; box-shadow:0 0 8px #eab30899; }
+    .dot.red    { background:#ef4444; }
+    .dot.gray   { background:#334155; }
+    .section { padding:10px 16px; border-bottom:1px solid #111827; }
+    .section-title { font-size:10px; font-weight:700; color:#334155; text-transform:uppercase; letter-spacing:.8px; margin-bottom:8px; }
+    .info-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:5px; }
+    .info-label { color:#475569; font-size:12px; }
+    .badge { font-size:10px; font-weight:600; padding:2px 8px; border-radius:99px; }
+    .badge.green  { background:#14532d; color:#4ade80; }
+    .badge.gray   { background:#1e293b; color:#475569; }
+    .btn-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+    .btn { padding:8px 10px; border-radius:8px; border:none; cursor:pointer; font-size:12px; font-weight:600; transition:all .15s; width:100%; text-align:center; }
+    .btn-green   { background:#065f46; color:#6ee7b7; }
+    .btn-green:hover { background:#064e3b; }
+    .btn-gray    { background:#1e293b; color:#94a3b8; }
+    .btn-gray:hover { background:#273344; }
+    .btn-orange  { background:#7c2d12; color:#fb923c; }
+    .btn-orange:hover { background:#9a3412; }
+    .btn-full    { grid-column:1/-1; }
+    .tab-bar { display:flex; border-bottom:1px solid #1e293b; }
+    .tab { flex:1; padding:8px; text-align:center; font-size:11px; font-weight:600; cursor:pointer; color:#475569; border-bottom:2px solid transparent; transition:all .15s; }
+    .tab.active { color:#34d399; border-bottom-color:#34d399; }
+    .tab-panel { display:none; }
+    .tab-panel.active { display:block; }
+    .log-area { background:#070b10; border-radius:6px; padding:8px; height:110px; overflow-y:auto; font-family:monospace; font-size:11px; line-height:1.6; }
+    .log-area .err  { color:#f87171; }
+    .log-area .info { color:#38bdf8; }
+    .log-area .ok   { color:#4ade80; }
+    .log-area .warn { color:#fbbf24; }
+    .dom-result { background:#0a0f1a; border-radius:8px; padding:10px; margin-top:8px; font-size:11px; max-height:180px; overflow-y:auto; }
+    .dom-item { padding:4px 6px; border-radius:4px; margin-bottom:3px; background:#111827; }
+    .dom-item .tag { color:#34d399; font-weight:700; font-size:10px; }
+    .dom-item .label { color:#94a3b8; }
+    .test-section { padding:10px 16px; }
+    .test-input { width:100%; padding:7px 10px; background:#111827; border:1px solid #1e293b; border-radius:6px; color:#e2e8f0; font-size:12px; resize:none; }
+    .test-input:focus { outline:none; border-color:#34d399; }
+    select.test-input { cursor:pointer; }
+    .note { font-size:10px; color:#475569; margin-top:6px; line-height:1.5; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>🌊 Flow Bridge v1.0</h1>
+      <p>YouTube 소재 발굴 도구 ↔ Google Flow 자동 연결</p>
+    </div>
+  </div>
+
+  <div class="status-bar">
+    <div class="dot gray" id="connDot"></div>
+    <span style="font-size:12px;color:#94a3b8" id="connLabel">상태 확인 중...</span>
+  </div>
+
+  <div class="tab-bar">
+    <div class="tab active" data-tab="status">📊 상태</div>
+    <div class="tab" data-tab="test">🧪 테스트</div>
+    <div class="tab" data-tab="dom">🔍 DOM</div>
+    <div class="tab" data-tab="log">📋 로그</div>
+  </div>
+
+  <!-- 상태 탭 -->
+  <div class="tab-panel active" id="tab-status">
+    <div class="section">
+      <div class="section-title">연결 상태</div>
+      <div class="info-row"><span class="info-label">웹앱 (localhost:8765)</span><span class="badge gray" id="appBadge">미감지</span></div>
+      <div class="info-row"><span class="info-label">Google Flow 탭</span><span class="badge gray" id="flowBadge">미감지</span></div>
+      <div class="info-row"><span class="info-label">대기 중인 작업</span><span style="color:#cbd5e1;font-size:12px" id="pendingCount">0</span></div>
+    </div>
+    <div class="section">
+      <div class="section-title">빠른 실행</div>
+      <div class="btn-grid">
+        <button class="btn btn-green" id="openFlowBtn">🌊 Flow 열기</button>
+        <button class="btn btn-gray"  id="openAppBtn">🖥 웹앱 열기</button>
+        <button class="btn btn-gray btn-full" id="refreshBtn">🔄 상태 새로고침</button>
+      </div>
+      <p class="note">⚠️ Google Flow는 <strong>labs.google/fx/tools/flow</strong>에서 작동합니다.<br>Google 계정으로 로그인이 필요합니다.</p>
+    </div>
+  </div>
+
+  <!-- 테스트 탭 -->
+  <div class="tab-panel" id="tab-test">
+    <div class="test-section">
+      <div class="section-title" style="margin-bottom:8px">테스트 생성</div>
+      <select class="test-input" id="testMode" style="margin-bottom:6px">
+        <option value="text_to_video">🎥 텍스트 → 비디오</option>
+        <option value="image_to_video">🖼→🎥 이미지 → 비디오</option>
+      </select>
+      <textarea class="test-input" id="testPrompt" rows="3" placeholder="프롬프트 입력 (영어 권장)&#10;예: A beautiful sunset over mountains">A beautiful sunset over mountains, cinematic, 4K</textarea>
+      <button class="btn btn-green btn-full" id="testGenerateBtn" style="margin-top:6px">▶ 테스트 실행</button>
+      <div id="testResult" style="margin-top:8px;font-size:11px;color:#64748b;display:none"></div>
+    </div>
+  </div>
+
+  <!-- DOM 검사 탭 -->
+  <div class="tab-panel" id="tab-dom">
+    <div class="section">
+      <div class="section-title">Google Flow DOM 감지</div>
+      <div class="btn-grid">
+        <button class="btn btn-orange" id="inspectBtn">🔍 DOM 스캔</button>
+        <button class="btn btn-gray"   id="clearDomBtn">🗑 지우기</button>
+      </div>
+      <div id="domResult" class="dom-result" style="display:none">
+        <div style="color:#475569;font-size:11px">Flow 탭에서 DOM 스캔을 실행하세요</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 로그 탭 -->
+  <div class="tab-panel" id="tab-log">
+    <div class="section">
+      <div class="log-area" id="logArea"></div>
+      <button class="btn btn-gray btn-full" id="clearLogBtn" style="margin-top:6px">🗑 로그 지우기</button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
