@@ -34,7 +34,8 @@
   }
 
   function textMatcher(el, text) {
-    return el.textContent?.trim() === text || el.textContent?.trim().includes(text);
+    const t = el.textContent?.trim() || '';
+    return t === text || t.includes(text);
   }
 
   // i:text("…") 또는 span:text("…") 를 처리하는 커스텀 파서
@@ -142,11 +143,21 @@
     el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
   }
 
-  // ── 1단계: 프로젝트 생성 (Flow 메인 페이지) ─────────────────────────────
+  // ── 편집 페이지 여부 판단 ────────────────────────────────────────────────
+  function isEditorPage() {
+    // 편집 페이지: /flow/editor/ 또는 프롬프트 박스가 DOM에 있음
+    return location.href.includes('/flow/editor') ||
+           location.href.includes('/flow/project') ||
+           !!document.querySelector('div[role="textbox"]') ||
+           !!document.querySelector('button[color="BLURPLE"]');
+  }
+
+  // ── 1단계: Flow 메인 페이지 이동 ────────────────────────────────────────
   async function ensureFlowPage() {
     const url = location.href;
-    if (url.includes('/fx/tools/flow')) {
-      log('이미 Flow 페이지');
+    // /fx/tools/flow 또는 /fx/ko/tools/flow 등 언어 변형 포함
+    if (url.includes('/tools/flow')) {
+      log('이미 Flow 페이지:', url);
       return true;
     }
     location.href = 'https://labs.google/fx/tools/flow';
@@ -154,16 +165,49 @@
     return location.href.includes('flow');
   }
 
-  // ── 2단계: 새 프로젝트 시작 ─────────────────────────────────────────────
+  // ── 2단계: 새 프로젝트 버튼 찾기 ────────────────────────────────────────
   async function createProject() {
-    const btn = await waitFor(SEL.createProjectButton, 8000);
+    // 이미 편집 화면이면 스킵
+    if (isEditorPage()) {
+      log('이미 편집 페이지 — 새 프로젝트 생성 스킵');
+      return true;
+    }
+
+    // 방법 1: Material Icon "add_2" 버튼
+    let btn = qFirst(SEL.createProjectButton);
+
+    // 방법 2: 텍스트 "새 프로젝트" / "New project" / "Create"
+    if (!btn) {
+      btn = [...document.querySelectorAll('button')].find(b => {
+        const t = b.textContent.trim();
+        return t.includes('새 프로젝트') || t.includes('New project') ||
+               t.includes('Create') || t.includes('새로 만들기');
+      }) || null;
+    }
+
+    // 방법 3: add / add_circle 계열 아이콘
+    if (!btn) {
+      btn = [...document.querySelectorAll('button')].find(b =>
+        [...b.querySelectorAll('i')].some(i => {
+          const t = i.textContent.trim();
+          return t === 'add' || t === 'add_2' || t === 'add_circle' || t.startsWith('add');
+        })
+      ) || null;
+    }
+
     if (btn) {
       btn.click();
       log('새 프로젝트 버튼 클릭');
-      await sleep(2000);
+      await sleep(3000);
       return true;
     }
-    log('createProject 버튼 없음 — 이미 편집 모드일 수 있음');
+
+    log('⚠️ 새 프로젝트 버튼 없음 — 편집 페이지 직접 대기');
+    // 편집 페이지가 로드될 때까지 대기 (사용자가 이미 프로젝트를 열었을 경우)
+    for (let i = 0; i < 10; i++) {
+      await sleep(1000);
+      if (isEditorPage()) { log('편집 페이지 감지됨'); return true; }
+    }
     return false;
   }
 
@@ -328,10 +372,15 @@
 
   // ── DOM 스냅샷 ───────────────────────────────────────────────────────────
   function snapshotDOM() {
+    // Material Icons i 태그 수집
+    const allIcons = [...document.querySelectorAll('i')].map(i => i.textContent.trim()).filter(Boolean);
+    const uniqueIcons = [...new Set(allIcons)].slice(0, 30);
+
     return {
       url: location.href,
       isFlowPage: location.href.includes('flow'),
-      inputs: [...document.querySelectorAll('textarea, input[type=text], div[role=textbox]')].map(el => ({
+      isEditorPage: isEditorPage(),
+      inputs: [...document.querySelectorAll('textarea, input[type=text], div[role=textbox], [contenteditable=true]')].map(el => ({
         tag: el.tagName,
         role: el.getAttribute('role') || '',
         placeholder: (el.getAttribute('placeholder') || '').slice(0, 60),
@@ -344,13 +393,16 @@
         ariaLabel: (b.getAttribute('aria-label') || '').slice(0, 50),
         color: b.getAttribute('color') || '',
         ariaHaspopup: b.getAttribute('aria-haspopup') || '',
+        icons: [...b.querySelectorAll('i')].map(i => i.textContent.trim()).filter(Boolean),
       })),
       tiles: [...document.querySelectorAll('[data-tile-id]')].length,
       videos: [...document.querySelectorAll('video')].map(v => v.src || v.currentSrc).filter(Boolean),
+      materialIcons: uniqueIcons,
       confirmedSelectors: {
-        promptTextarea: !!qFirst(SEL.promptTextarea),
-        submitButton:   !!qFirst(SEL.submitButton),
-        outputItems:    document.querySelectorAll('[data-tile-id]').length,
+        promptTextarea:      !!qFirst(SEL.promptTextarea),
+        submitButton:        !!qFirst(SEL.submitButton),
+        createProjectButton: !!qFirst(SEL.createProjectButton),
+        outputItems:         document.querySelectorAll('[data-tile-id]').length,
       },
       ts: Date.now(),
     };

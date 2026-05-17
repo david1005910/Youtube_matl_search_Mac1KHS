@@ -129,13 +129,19 @@ document.getElementById('inspectBtn').addEventListener('click', async () => {
 
     let html = `<div style="color:#4ade80;margin-bottom:6px;font-size:10px">📍 ${snapshot.url}</div>`;
 
-    // 셀렉터 확인 상태
     const sc = snapshot.confirmedSelectors || {};
-    html += `<div style="color:#34d399;font-size:10px;margin-bottom:6px">
-      ${sc.promptTextarea ? '✅' : '❌'} 프롬프트박스 &nbsp;
-      ${sc.submitButton   ? '✅' : '❌'} 전송버튼 &nbsp;
+    const isEditor = snapshot.isEditorPage ? '✅ 편집페이지' : '⚠️ 목록페이지';
+    html += `<div style="color:#34d399;font-size:10px;margin-bottom:4px">
+      ${isEditor} &nbsp;|&nbsp;
+      ${sc.promptTextarea      ? '✅' : '❌'} 프롬프트 &nbsp;
+      ${sc.submitButton        ? '✅' : '❌'} 전송버튼 &nbsp;
+      ${sc.createProjectButton ? '✅' : '❌'} 새프로젝트 &nbsp;
       타일: ${sc.outputItems || 0}개
     </div>`;
+
+    if (snapshot.materialIcons?.length) {
+      html += `<div style="color:#64748b;font-size:9px;margin-bottom:4px">아이콘: ${snapshot.materialIcons.join(', ')}</div>`;
+    }
 
     if (snapshot.inputs?.length) {
       html += `<div style="color:#818cf8;font-size:10px;margin-bottom:4px">🔤 인풋 (${snapshot.inputs.length}개)</div>`;
