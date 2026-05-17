@@ -176,6 +176,31 @@ document.getElementById('clearDomBtn').addEventListener('click', () => {
   el.style.display = 'none';
 });
 
+// ── background → 팝업 실시간 로그/결과 수신 ─────────────────────────────────
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === 'POPUP_LOG') {
+    addLog(msg.message, msg.message.startsWith('✅') ? 'ok' : msg.message.startsWith('❌') ? 'err' : 'info');
+  }
+  if (msg.type === 'POPUP_RESULT') {
+    const resultEl = document.getElementById('testResult');
+    if (resultEl) {
+      if (msg.error) {
+        resultEl.style.color = '#f87171';
+        resultEl.textContent = '❌ ' + msg.error;
+        addLog('생성 실패: ' + msg.error, 'err');
+      } else if (msg.url) {
+        resultEl.style.color = '#4ade80';
+        resultEl.innerHTML = `✅ 완료! <a href="${msg.url}" target="_blank" style="color:#34d399">결과 보기</a>`;
+        addLog('생성 완료: ' + msg.mediaType + ' — ' + (msg.url || '').slice(0, 60), 'ok');
+      } else {
+        resultEl.style.color = '#94a3b8';
+        resultEl.textContent = '✅ 완료 (URL 없음 — Flow 탭 직접 확인)';
+        addLog('생성 완료 (URL 미감지)', 'ok');
+      }
+    }
+  }
+});
+
 // ── 초기화 ────────────────────────────────────────────────────────────────────
 refreshStatus();
 setInterval(refreshStatus, 5000);

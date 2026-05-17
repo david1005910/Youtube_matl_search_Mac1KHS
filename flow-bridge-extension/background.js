@@ -84,6 +84,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // content_flow.js → background: 진행상황
+  if (msg.type === 'GENERATE_PROGRESS') {
+    // 팝업에 로그 전달
+    chrome.runtime.sendMessage({ type: 'POPUP_LOG', message: msg.message }).catch(() => {});
+    sendResponse({ ok: true });
+    return true;
+  }
+
   // content_flow.js → background: 생성 완료
   if (msg.type === 'GENERATE_RESULT') {
     const { jobId, url, mediaType, error } = msg;
@@ -94,6 +102,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         jobId, url, mediaType, error,
       }).catch(() => {});
     }
+    // 팝업에도 결과 전달
+    chrome.runtime.sendMessage({ type: 'POPUP_RESULT', jobId, url, mediaType, error }).catch(() => {});
     sendResponse({ ok: true });
     return true;
   }

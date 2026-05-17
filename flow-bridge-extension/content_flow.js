@@ -202,11 +202,35 @@
       return true;
     }
 
-    log('⚠️ 새 프로젝트 버튼 없음 — 편집 페이지 직접 대기');
-    // 편집 페이지가 로드될 때까지 대기 (사용자가 이미 프로젝트를 열었을 경우)
-    for (let i = 0; i < 10; i++) {
+    // 방법 4: div/role=button 포함 모든 클릭 가능 요소
+    if (!btn) {
+      const clickables = [...document.querySelectorAll('button, [role="button"], a')];
+      btn = clickables.find(el => {
+        const t = el.textContent.trim();
+        return t.includes('새 프로젝트') || t.includes('New project') || t === '+';
+      }) || null;
+    }
+
+    if (btn) {
+      btn.click();
+      log('새 프로젝트 클릭: ' + btn.tagName + ' "' + btn.textContent.trim().slice(0,20) + '"');
+      await sleep(3000);
+      return true;
+    }
+
+    // 마지막 수단: 첫 번째 기존 프로젝트 카드 클릭
+    const projectCard = document.querySelector('a[href*="/flow/project/"]');
+    if (projectCard) {
+      projectCard.click();
+      log('기존 프로젝트 카드 클릭');
+      await sleep(3000);
+      return true;
+    }
+
+    log('⚠️ 프로젝트 진입 불가 — 편집 페이지 대기 중');
+    for (let i = 0; i < 15; i++) {
       await sleep(1000);
-      if (isEditorPage()) { log('편집 페이지 감지됨'); return true; }
+      if (isEditorPage()) { log('편집 페이지 진입 감지'); return true; }
     }
     return false;
   }
@@ -289,52 +313,86 @@
     throw new Error('전송 버튼을 찾지 못했습니다');
   }
 
-  // ── 7단계: 결과 대기 ────────────────────────────────────────────────────
+  // ── 진행상황 로그 전송 ──────────────────────────────────────────────────
+  function sendProgress(msg) {
+    log(msg);
+    chrome.runtime.sendMessage({ type: 'GENERATE_PROGRESS', message: msg }).catch(() => {});
+  }
+
+  // ── 7단계: 결과 대기 (Google Flow 특화) ────────────────────────────────
   function waitForResult(timeoutMs = 5 * 60 * 1000) {
     return new Promise((resolve, reject) => {
-      const deadline = Date.now() + timeoutMs;
+      const deadline  = Date.now() + timeoutMs;
       let lastTileCount = document.querySelectorAll('[data-tile-id]').length;
+      let resolved    = false;
+      let tickCount   = 0;
+
+      function done(result) {
+        if (resolved) return;
+        resolved = true;
+        obs.disconnect();
+        clearInterval(timer);
+        resolve(result);
+      }
 
       const check = () => {
+        if (resolved) return;
         if (Date.now() > deadline) {
-          obs.disconnect();
-          clearInterval(timer);
+          obs.disconnect(); clearInterval(timer);
           return reject(new Error('생성 시간 초과 (5분)'));
         }
 
-        // 비디오 URL 감지
-        const videos = [...document.querySelectorAll('video[src]')]
-          .map(v => v.src).filter(s => s.length > 30 && !s.includes('blob:http'));
-        if (videos.length) {
-          obs.disconnect(); clearInterval(timer);
-          return resolve({ url: videos[videos.length - 1], mediaType: 'video' });
+        tickCount++;
+        if (tickCount % 5 === 0) sendProgress(`⏳ 생성 중... (${Math.round((Date.now()-(deadline-timeoutMs))/1000)}초 경과)`);
+
+        // ① 완성된 타일 내 video 태그 (src 있음)
+        const tileVideos = [...document.querySelectorAll('[data-tile-id] video')];
+        for (const v of tileVideos) {
+          const src = v.src || v.currentSrc || '';
+          if (src && src.length > 10) { sendProgress('✅ 비디오 타일 감지'); return done({ url: src, mediaType: 'video' }); }
+          // source 태그
+          const src2 = v.querySelector('source')?.src || '';
+          if (src2) { sendProgress('✅ 비디오 source 감지'); return done({ url: src2, mediaType: 'video' }); }
         }
 
-        // blob URL 비디오
-        const blobVideos = [...document.querySelectorAll('video[src^="blob:"]')]
-          .map(v => v.src);
-        if (blobVideos.length) {
-          obs.disconnect(); clearInterval(timer);
-          return resolve({ url: blobVideos[blobVideos.length - 1], mediaType: 'video' });
+        // ② 페이지 전체 video (blob 포함)
+        const allVideos = [...document.querySelectorAll('video')];
+        for (const v of allVideos) {
+          const src = v.src || v.currentSrc || '';
+          if (src && src.length > 10 && !src.endsWith('#')) {
+            sendProgress('✅ 비디오 감지: ' + src.slice(0, 60));
+            return done({ url: src, mediaType: 'video' });
+          }
         }
 
-        // 새 타일 감지 (이미지/영상 완성)
+        // ③ 새 타일 등장 (이미지/영상 완료 시 타일 수 증가)
         const tiles = document.querySelectorAll('[data-tile-id]').length;
         if (tiles > lastTileCount) {
           lastTileCount = tiles;
-          // 타일 안의 이미지/비디오 확인
+          sendProgress(`🔲 새 타일 감지 (${tiles}개)`);
+          // 타일 안 img
           const tileImgs = [...document.querySelectorAll('[data-tile-id] img[src]')]
-            .map(i => i.src).filter(s => s.length > 30 && !s.includes('icon'));
-          if (tileImgs.length) {
-            obs.disconnect(); clearInterval(timer);
-            return resolve({ url: tileImgs[tileImgs.length - 1], mediaType: 'image' });
+            .map(i => i.src).filter(s => s.length > 30 && !s.includes('icon') && !s.includes('svg'));
+          if (tileImgs.length) { sendProgress('✅ 이미지 타일 감지'); return done({ url: tileImgs[tileImgs.length - 1], mediaType: 'image' }); }
+        }
+
+        // ④ 로딩 스피너 없어짐 감지 (생성 완료 신호)
+        const hasSpinner = !!document.querySelector('[data-tile-id] [role="progressbar"], [data-tile-id] .animate-spin');
+        if (!hasSpinner && lastTileCount > 0) {
+          const anyVideo = document.querySelector('[data-tile-id] video, [data-tile-id] img[src]');
+          if (anyVideo) {
+            const src = anyVideo.tagName === 'VIDEO'
+              ? (anyVideo.src || anyVideo.currentSrc || '')
+              : anyVideo.src || '';
+            if (src) { sendProgress('✅ 스피너 종료 후 미디어 감지'); return done({ url: src, mediaType: anyVideo.tagName === 'VIDEO' ? 'video' : 'image' }); }
           }
         }
       };
 
       const obs = new MutationObserver(check);
-      obs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'data-tile-id'] });
+      obs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'data-tile-id', 'data-state'] });
       const timer = setInterval(check, 2000);
+      check(); // 즉시 1회 실행
     });
   }
 
