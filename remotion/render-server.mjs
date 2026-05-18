@@ -110,6 +110,60 @@ app.post('/render-image', async (req, res) => {
   }
 });
 
+// 이미지 슬라이드쇼 → MP4 (ImageSlideshow 컴포지션 사용)
+app.post('/render-slideshow', async (req, res) => {
+  const {
+    images = [],     // [{src, caption, duration}] 배열
+    title = 'Slideshow',
+    transitionDuration = 15,
+    backgroundMusic,
+    fps = 30,
+    width = 1920,
+    height = 1080,
+  } = req.body;
+
+  if (!images || images.length === 0) {
+    return res.status(400).json({ error: 'images array is required' });
+  }
+
+  // 총 영상 길이 계산
+  const totalDurationInSeconds = images.reduce((sum, img) => sum + (img.duration || 5), 0) + 2; // +2초 (제목/엔딩)
+  const durationInFrames = Math.ceil(totalDurationInSeconds * fps);
+  const outputPath = path.join(OUTPUT_DIR, `slideshow-${Date.now()}.mp4`);
+
+  try {
+    const serveUrl = await getBundle();
+
+    console.log(`\n🎬 Rendering slideshow: ${images.length} images, ${totalDurationInSeconds}s total`);
+
+    await renderMedia({
+      composition: {
+        id: 'ImageSlideshow',
+        durationInFrames,
+        fps,
+        width,
+        height,
+      },
+      serveUrl,
+      codec: 'h264',
+      outputLocation: outputPath,
+      inputProps: { images, title, transitionDuration, backgroundMusic },
+      onProgress: ({ progress }) => {
+        process.stdout.write(`\rRendering slideshow… ${(progress * 100).toFixed(1)}%`);
+      },
+    });
+
+    console.log(`\n✅ Done → ${outputPath}`);
+    res.download(outputPath, `slideshow-${Date.now()}.mp4`, () => {
+      fs.unlink(outputPath, () => {});
+    });
+  } catch (err) {
+    console.error(err);
+    fs.unlink(outputPath, () => {});
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 app.post('/render', async (req, res) => {
   const {
     videoSrc,
@@ -166,7 +220,11 @@ app.post('/render', async (req, res) => {
 
 const PORT = 8766;
 app.listen(PORT, () => {
-  console.log(`✅ Subtitle renderer → http://localhost:${PORT}`);
-  console.log('   POST /render  |  GET /health');
-  console.log('   종료: Ctrl+C');
+  console.log(`🎬 Remotion Render Server → http://localhost:${PORT}`);
+  console.log('\n🔧 Available endpoints:');
+  console.log('   POST /render           - Subtitle burn-in');
+  console.log('   POST /render-image     - Single image to video');
+  console.log('   POST /render-slideshow - Image slideshow to video 🆕');
+  console.log('   GET  /health           - Health check');
+  console.log('\n   종료: Ctrl+C');
 });
