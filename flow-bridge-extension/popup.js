@@ -105,7 +105,38 @@ document.getElementById('testGenerateBtn').addEventListener('click', async () =>
     resultEl.textContent = '❌ ' + e.message;
     addLog('오류: ' + e.message, 'err');
   } finally {
-    btn.textContent = '▶ 테스트 실행';
+    btn.textContent = '▶ 자동 실행';
+    btn.disabled    = false;
+  }
+});
+
+// ── 채우기만 (수동 모드) ──────────────────────────────────────────────────────
+document.getElementById('fillOnlyBtn').addEventListener('click', async () => {
+  const btn      = document.getElementById('fillOnlyBtn');
+  const prompt   = document.getElementById('testPrompt').value.trim();
+  const resultEl = document.getElementById('testResult');
+
+  if (!prompt) { addLog('프롬프트를 입력하세요', 'warn'); return; }
+
+  btn.textContent = '⏳...';
+  btn.disabled    = true;
+  resultEl.style.display = 'block';
+  resultEl.style.color   = '#fbbf24';
+  resultEl.textContent   = 'Flow 에디터에 프롬프트 입력 중...';
+  addLog('프롬프트 채우기 시작', 'info');
+
+  try {
+    const res = await chrome.runtime.sendMessage({ type: 'FILL_ONLY', prompt });
+    if (res?.error) throw new Error(res.error);
+    resultEl.style.color = '#4ade80';
+    resultEl.textContent = '✅ 프롬프트 입력 완료 — Flow 탭에서 생성 버튼을 클릭하세요';
+    addLog('프롬프트 입력 완료', 'ok');
+  } catch (e) {
+    resultEl.style.color = '#f87171';
+    resultEl.textContent = '❌ ' + e.message;
+    addLog('오류: ' + e.message, 'err');
+  } finally {
+    btn.textContent = '✏️ 채우기만';
     btn.disabled    = false;
   }
 });
@@ -130,13 +161,17 @@ document.getElementById('inspectBtn').addEventListener('click', async () => {
     let html = `<div style="color:#4ade80;margin-bottom:6px;font-size:10px">📍 ${snapshot.url}</div>`;
 
     const sc = snapshot.confirmedSelectors || {};
-    const isEditor = snapshot.isEditorPage ? '✅ 편집페이지' : '⚠️ 목록페이지';
+    // promptTextarea 감지 여부로 편집 페이지 판단 (isEditorPage SPA 타이밍 이슈 우회)
+    const isEditor = (sc.promptTextarea || snapshot.isEditorPage) ? '✅ 편집페이지' : '⚠️ 목록페이지';
+    const ver = snapshot.version ? ` [${snapshot.version}]` : '';
+    const ffStatus = snapshot.flowFactoryReady ? '🏭 FlowFactory ✅' : '⚠️ FlowFactory 미연결';
     html += `<div style="color:#34d399;font-size:10px;margin-bottom:4px">
       ${isEditor} &nbsp;|&nbsp;
       ${sc.promptTextarea      ? '✅' : '❌'} 프롬프트 &nbsp;
       ${sc.submitButton        ? '✅' : '❌'} 전송버튼 &nbsp;
       ${sc.createProjectButton ? '✅' : '❌'} 새프로젝트 &nbsp;
       타일: ${sc.outputItems || 0}개
+      &nbsp;| <span style="color:${snapshot.flowFactoryReady ? '#4ade80' : '#f59e0b'}">${ffStatus}</span>${ver}
     </div>`;
 
     if (snapshot.materialIcons?.length) {
