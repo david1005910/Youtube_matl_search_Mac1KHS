@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎬 Remotion 영상 편집기</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans KR', sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            color: #fff;
+        }
+        
+        .header {
+            background: rgba(0,0,0,0.3);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .server-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 15px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 20px;
+            font-size: 14px;
+            margin-left: 20px;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #dc3545;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-dot.online {
+            background: #28a745;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 30px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+        
+        .panel {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 25px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .panel h2 {
+            font-size: 20px;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid rgba(255,255,255,0.2);
+        }
+        
+        .upload-area {
+            border: 3px dashed rgba(255,255,255,0.3);
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .upload-area:hover {
+            border-color: rgba(255,255,255,0.5);
+            background: rgba(255,255,255,0.05);
+        }
+        
+        .upload-area.dragover {
+            border-color: #4CAF50;
+            background: rgba(76,175,80,0.1);
+        }
+        
+        .upload-area input[type="file"] {
+            display: none;
+        }
+        
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+        
+        .image-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            padding: 10px;
+        }
+        
+        .image-item {
+            position: relative;
+            border-radius: 10px;
+            overflow: hidden;
+            background: rgba(0,0,0,0.3);
+            aspect-ratio: 16/9;
+            cursor: move;
+        }
+        
+        .image-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .image-item .controls {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            display: flex;
+            gap: 5px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        
+        .image-item:hover .controls {
+            opacity: 1;
+        }
+        
+        .image-item button {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+        
+        .image-item button:hover {
+            background: rgba(0,0,0,0.9);
+        }
+        
+        .image-item .duration {
+            position: absolute;
+            bottom: 5px;
+            left: 5px;
+            background: rgba(0,0,0,0.7);
+            padding: 3px 8px;
+            border-radius: 5px;
+            font-size: 12px;
+        }
+        
+        .image-item .caption {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
+            padding: 10px 5px 5px;
+            font-size: 11px;
+            color: white;
+        }
+        
+        .settings-group {
+            margin-bottom: 20px;
+        }
+        
+        .settings-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: rgba(255,255,255,0.9);
+        }
+        
+        .settings-group input,
+        .settings-group select,
+        .settings-group textarea {
+            width: 100%;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(255,255,255,0.1);
+            color: white;
+            font-size: 14px;
+        }
+        
+        .settings-group input::placeholder,
+        .settings-group textarea::placeholder {
+            color: rgba(255,255,255,0.5);
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .btn {
+            flex: 1;
+            padding: 12px 20px;
+            border-radius: 10px;
+            border: none;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(102,126,234,0.4);
+        }
+        
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        
+        .preview-player {
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: #000;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .preview-player video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        
+        .preview-placeholder {
+            text-align: center;
+            color: rgba(255,255,255,0.5);
+        }
+        
+        .progress-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: rgba(0,0,0,0.2);
+            display: none;
+        }
+        
+        .progress-bar.active {
+            display: block;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            width: 0;
+            transition: width 0.3s ease;
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            padding: 15px 25px;
+            background: rgba(0,0,0,0.8);
+            border-radius: 10px;
+            color: white;
+            font-size: 14px;
+            display: none;
+            animation: slideIn 0.3s ease;
+        }
+        
+        .toast.show {
+            display: block;
+        }
+        
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        .timeline {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
+        }
+        
+        .timeline-track {
+            display: flex;
+            gap: 5px;
+            overflow-x: auto;
+            padding: 10px 0;
+        }
+        
+        .timeline-item {
+            flex-shrink: 0;
+            width: 100px;
+            height: 60px;
+            border-radius: 5px;
+            background: rgba(255,255,255,0.1);
+            border: 2px solid transparent;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .timeline-item.active {
+            border-color: #667eea;
+        }
+        
+        .timeline-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .timeline-item .time {
+            position: absolute;
+            bottom: 2px;
+            right: 2px;
+            background: rgba(0,0,0,0.7);
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-size: 10px;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .shortcuts {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.7);
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 12px;
+            opacity: 0.5;
+            transition: opacity 0.3s;
+        }
+
+        .shortcuts:hover {
+            opacity: 1;
+        }
+
+        .shortcuts h4 {
+            margin-bottom: 10px;
+            color: #667eea;
+        }
+
+        .shortcuts div {
+            margin: 5px 0;
+        }
+
+        .shortcuts kbd {
+            background: rgba(255,255,255,0.1);
+            padding: 2px 5px;
+            border-radius: 3px;
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="progress-bar" id="progressBar">
+        <div class="progress-fill" id="progressFill"></div>
+    </div>
+
+    <div class="header">
+        <h1>
+            🎬 Remotion 영상 편집기
+            <span class="server-status">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">연결 확인 중...</span>
+            </span>
+        </h1>
+    </div>
+
+    <div class="container">
+        <!-- 왼쪽 패널: 이미지 관리 -->
+        <div class="panel">
+            <h2>📸 이미지 소스</h2>
+            
+            <div class="upload-area" id="uploadArea">
+                <input type="file" id="fileInput" multiple accept="image/*">
+                <div class="upload-icon">📁</div>
+                <p>이미지를 드래그하거나 클릭하여 업로드</p>
+                <small>JPG, PNG, GIF 지원 (여러 개 선택 가능)</small>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-secondary" onclick="loadFromApp()">
+                    📲 앱에서 가져오기
+                </button>
+                <button class="btn btn-secondary" onclick="clearImages()">
+                    🗑️ 모두 삭제
+                </button>
+            </div>
+
+            <div class="image-grid" id="imageGrid"></div>
+
+            <div class="timeline">
+                <h3 style="font-size: 14px; margin-bottom: 10px;">⏱️ 타임라인</h3>
+                <div class="timeline-track" id="timeline"></div>
+            </div>
+        </div>
+
+        <!-- 오른쪽 패널: 설정 및 프리뷰 -->
+        <div class="panel">
+            <h2>⚙️ 영상 설정</h2>
+            
+            <div class="settings-group">
+                <label>📝 영상 제목</label>
+                <input type="text" id="videoTitle" placeholder="My Awesome Video" value="Generated Video">
+            </div>
+
+            <div class="settings-group">
+                <label>⏱️ 이미지당 표시 시간 (초)</label>
+                <select id="imageDuration">
+                    <option value="3">3초</option>
+                    <option value="5" selected>5초</option>
+                    <option value="7">7초</option>
+                    <option value="10">10초</option>
+                </select>
+            </div>
+
+            <div class="settings-group">
+                <label>🎨 트랜지션 효과</label>
+                <select id="transitionType">
+                    <option value="fade">페이드</option>
+                    <option value="slide">슬라이드</option>
+                    <option value="zoom">줌</option>
+                    <option value="none">없음</option>
+                </select>
+            </div>
+
+            <div class="settings-group">
+                <label>🎵 배경 음악 (선택)</label>
+                <input type="file" id="bgMusic" accept="audio/*">
+            </div>
+
+            <div class="settings-group">
+                <label>📐 해상도</label>
+                <select id="resolution">
+                    <option value="1920x1080">1080p (1920×1080)</option>
+                    <option value="1280x720">720p (1280×720)</option>
+                    <option value="3840x2160">4K (3840×2160)</option>
+                    <option value="1080x1920">세로형 (1080×1920)</option>
+                </select>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-secondary" onclick="previewVideo()">
+                    👁️ 미리보기
+                </button>
+                <button class="btn btn-primary" onclick="renderVideo()">
+                    🎬 영상 생성
+                </button>
+            </div>
+
+            <div class="preview-player" id="previewPlayer">
+                <div class="preview-placeholder">
+                    <div style="font-size: 48px; margin-bottom: 10px;">🎥</div>
+                    <p>여기에 미리보기가 표시됩니다</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 단축키 안내 -->
+    <div class="shortcuts">
+        <h4>⌨️ 단축키</h4>
+        <div><kbd>Space</kbd> 재생/일시정지</div>
+        <div><kbd>←/→</kbd> 이전/다음 이미지</div>
+        <div><kbd>Del</kbd> 선택 이미지 삭제</div>
+        <div><kbd>Ctrl+S</kbd> 프로젝트 저장</div>
+        <div><kbd>Ctrl+R</kbd> 영상 렌더링</div>
+    </div>
+
+    <!-- 알림 토스트 -->
+    <div class="toast" id="toast"></div>
+
+    <!-- 설정 모달 -->
+    <div class="modal" id="captionModal">
+        <div class="modal-content">
+            <h3 style="margin-bottom: 20px;">✏️ 자막 편집</h3>
+            <textarea id="modalCaption" rows="4" style="width: 100%; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 10px; border-radius: 8px;" placeholder="이 장면의 자막을 입력하세요..."></textarea>
+            <div class="btn-group" style="margin-top: 20px;">
+                <button class="btn btn-secondary" onclick="closeCaptionModal()">취소</button>
+                <button class="btn btn-primary" onclick="saveCaptionModal()">저장</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 전역 변수
+        let images = [];
+        let selectedIndex = -1;
+        let serverOnline = false;
+
+        // 서버 상태 확인
+        async function checkServer() {
+            try {
+                const response = await fetch('http://localhost:8766/health');
+                const data = await response.json();
+                if (data.ok) {
+                    serverOnline = true;
+                    document.getElementById('statusDot').classList.add('online');
+                    document.getElementById('statusText').textContent = '서버 연결됨';
+                } else {
+                    throw new Error('Server not ready');
+                }
+            } catch (error) {
+                serverOnline = false;
+                document.getElementById('statusDot').classList.remove('online');
+                document.getElementById('statusText').textContent = '서버 오프라인';
+                showToast('❌ Remotion 서버를 시작하세요: cd remotion && npm start', 5000);
+            }
+        }
+
+        // 파일 업로드 처리
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+        
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+        
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+
+        function handleFiles(files) {
+            Array.from(files).forEach(file => {
+                if (!file.type.startsWith('image/')) return;
+                
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    images.push({
+                        src: e.target.result,
+                        caption: '',
+                        duration: parseInt(document.getElementById('imageDuration').value),
+                        filename: file.name
+                    });
+                    updateImageGrid();
+                    updateTimeline();
+                    showToast(`✅ ${file.name} 추가됨`);
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        // 이미지 그리드 업데이트
+        function updateImageGrid() {
+            const grid = document.getElementById('imageGrid');
+            grid.innerHTML = '';
+            
+            images.forEach((img, index) => {
+                const item = document.createElement('div');
+                item.className = 'image-item';
+                item.innerHTML = `
+                    <img src="${img.src}" alt="">
+                    <div class="controls">
+                        <button onclick="editCaption(${index})" title="자막 편집">✏️</button>
+                        <button onclick="removeImage(${index})" title="삭제">❌</button>
+                    </div>
+                    <div class="duration">${img.duration}초</div>
+                    ${img.caption ? `<div class="caption">${img.caption}</div>` : ''}
+                `;
+                item.addEventListener('click', () => selectImage(index));
+                grid.appendChild(item);
+            });
+        }
+
+        // 타임라인 업데이트
+        function updateTimeline() {
+            const timeline = document.getElementById('timeline');
+            timeline.innerHTML = '';
+            
+            let totalTime = 0;
+            images.forEach((img, index) => {
+                const item = document.createElement('div');
+                item.className = 'timeline-item';
+                item.innerHTML = `
+                    <img src="${img.src}" alt="">
+                    <div class="time">${totalTime}s</div>
+                `;
+                item.addEventListener('click', () => selectImage(index));
+                timeline.appendChild(item);
+                totalTime += img.duration;
+            });
+        }
+
+        // 이미지 선택
+        function selectImage(index) {
+            selectedIndex = index;
+            document.querySelectorAll('.timeline-item').forEach((item, i) => {
+                item.classList.toggle('active', i === index);
+            });
+        }
+
+        // 이미지 제거
+        function removeImage(index) {
+            images.splice(index, 1);
+            updateImageGrid();
+            updateTimeline();
+            showToast('🗑️ 이미지 삭제됨');
+        }
+
+        // 모든 이미지 삭제
+        function clearImages() {
+            if (!confirm('모든 이미지를 삭제하시겠습니까?')) return;
+            images = [];
+            updateImageGrid();
+            updateTimeline();
+            showToast('🗑️ 모든 이미지 삭제됨');
+        }
+
+        // 앱에서 이미지 가져오기
+        async function loadFromApp() {
+            try {
+                // 부모 창에서 이미지 가져오기
+                if (window.opener) {
+                    const appImages = window.opener.document.querySelectorAll('img[src^="data:"]');
+                    if (appImages.length === 0) {
+                        showToast('⚠️ 앱에서 이미지를 찾을 수 없습니다');
+                        return;
+                    }
+                    
+                    appImages.forEach((img, index) => {
+                        images.push({
+                            src: img.src,
+                            caption: `장면 ${index + 1}`,
+                            duration: 5
+                        });
+                    });
+                    
+                    updateImageGrid();
+                    updateTimeline();
+                    showToast(`✅ ${appImages.length}개 이미지를 가져왔습니다`);
+                } else {
+                    showToast('⚠️ 앱 창을 찾을 수 없습니다. 앱에서 이 페이지를 열어주세요.');
+                }
+            } catch (error) {
+                showToast('❌ 이미지 가져오기 실패: ' + error.message);
+            }
+        }
+
+        // 자막 편집
+        let editingIndex = -1;
+        
+        function editCaption(index) {
+            editingIndex = index;
+            document.getElementById('modalCaption').value = images[index].caption || '';
+            document.getElementById('captionModal').classList.add('show');
+        }
+
+        function closeCaptionModal() {
+            document.getElementById('captionModal').classList.remove('show');
+            editingIndex = -1;
+        }
+
+        function saveCaptionModal() {
+            if (editingIndex >= 0) {
+                images[editingIndex].caption = document.getElementById('modalCaption').value;
+                updateImageGrid();
+                showToast('✅ 자막 저장됨');
+            }
+            closeCaptionModal();
+        }
+
+        // 미리보기
+        async function previewVideo() {
+            if (images.length === 0) {
+                showToast('⚠️ 이미지를 먼저 추가하세요');
+                return;
+            }
+            
+            const player = document.getElementById('previewPlayer');
+            player.innerHTML = '<div class="preview-placeholder"><div style="font-size: 48px;">⏳</div><p>미리보기 생성 중...</p></div>';
+            
+            // 간단한 슬라이드쇼로 미리보기
+            let currentIndex = 0;
+            const duration = parseInt(document.getElementById('imageDuration').value) * 1000;
+            
+            function showNext() {
+                if (currentIndex >= images.length) {
+                    currentIndex = 0;
+                }
+                
+                player.innerHTML = `
+                    <img src="${images[currentIndex].src}" style="width: 100%; height: 100%; object-fit: contain;">
+                    <div style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7); padding: 10px 20px; border-radius: 10px;">
+                        ${images[currentIndex].caption || `장면 ${currentIndex + 1}`}
+                    </div>
+                    <div style="position: absolute; top: 20px; right: 20px; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 5px; font-size: 12px;">
+                        ${currentIndex + 1} / ${images.length}
+                    </div>
+                `;
+                
+                currentIndex++;
+                if (currentIndex < images.length) {
+                    setTimeout(showNext, duration);
+                }
+            }
+            
+            showNext();
+            showToast('▶️ 미리보기 시작');
+        }
+
+        // 영상 렌더링
+        async function renderVideo() {
+            if (!serverOnline) {
+                showToast('❌ Remotion 서버를 먼저 시작하세요');
+                return;
+            }
+            
+            if (images.length === 0) {
+                showToast('⚠️ 이미지를 먼저 추가하세요');
+                return;
+            }
+            
+            const title = document.getElementById('videoTitle').value || 'Generated Video';
+            const resolution = document.getElementById('resolution').value.split('x');
+            
+            showProgress(0);
+            showToast('🎬 영상 생성 시작...');
+            
+            try {
+                const response = await fetch('http://localhost:8766/render-slideshow', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        images: images,
+                        title: title,
+                        transitionDuration: 15,
+                        width: parseInt(resolution[0]),
+                        height: parseInt(resolution[1]),
+                        fps: 30
+                    })
+                });
+                
+                // 진행 상황 시뮬레이션
+                let progress = 0;
+                const progressInterval = setInterval(() => {
+                    progress += 5;
+                    showProgress(Math.min(progress, 90));
+                }, 500);
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    clearInterval(progressInterval);
+                    showProgress(100);
+                    
+                    // 다운로드
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${title.replace(/[^a-z0-9]/gi, '_')}.mp4`;
+                    a.click();
+                    
+                    showToast('✅ 영상이 성공적으로 생성되었습니다!');
+                    hideProgress();
+                    
+                    // 프리뷰에 표시
+                    const player = document.getElementById('previewPlayer');
+                    player.innerHTML = `<video src="${url}" controls autoplay style="width: 100%; height: 100%;"></video>`;
+                } else {
+                    throw new Error('렌더링 실패');
+                }
+            } catch (error) {
+                showToast('❌ 영상 생성 실패: ' + error.message);
+                hideProgress();
+            }
+        }
+
+        // 진행 상황 표시
+        function showProgress(percent) {
+            const bar = document.getElementById('progressBar');
+            const fill = document.getElementById('progressFill');
+            bar.classList.add('active');
+            fill.style.width = percent + '%';
+        }
+
+        function hideProgress() {
+            setTimeout(() => {
+                document.getElementById('progressBar').classList.remove('active');
+                document.getElementById('progressFill').style.width = '0';
+            }, 1000);
+        }
+
+        // 토스트 메시지
+        function showToast(message, duration = 3000) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), duration);
+        }
+
+        // 단축키 처리
+        document.addEventListener('keydown', (e) => {
+            if (e.key === ' ') {
+                e.preventDefault();
+                previewVideo();
+            } else if (e.key === 'Delete' && selectedIndex >= 0) {
+                removeImage(selectedIndex);
+            } else if (e.ctrlKey && e.key === 'r') {
+                e.preventDefault();
+                renderVideo();
+            } else if (e.ctrlKey && e.key === 's') {
+                e.preventDefault();
+                saveProject();
+            } else if (e.key === 'ArrowLeft' && selectedIndex > 0) {
+                selectImage(selectedIndex - 1);
+            } else if (e.key === 'ArrowRight' && selectedIndex < images.length - 1) {
+                selectImage(selectedIndex + 1);
+            }
+        });
+
+        // 프로젝트 저장
+        function saveProject() {
+            const project = {
+                images: images,
+                settings: {
+                    title: document.getElementById('videoTitle').value,
+                    duration: document.getElementById('imageDuration').value,
+                    transition: document.getElementById('transitionType').value,
+                    resolution: document.getElementById('resolution').value
+                }
+            };
+            
+            const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'remotion_project.json';
+            a.click();
+            
+            showToast('💾 프로젝트 저장됨');
+        }
+
+        // 초기화
+        checkServer();
+        setInterval(checkServer, 5000);
+
+        // 부모 창과 통신
+        if (window.opener) {
+            window.opener.postMessage({ type: 'EDITOR_READY' }, '*');
+        }
+
+        // 메시지 수신
+        window.addEventListener('message', (e) => {
+            if (e.data.type === 'ADD_IMAGES' && e.data.images) {
+                e.data.images.forEach(img => {
+                    images.push({
+                        src: img.src || img,
+                        caption: img.caption || '',
+                        duration: img.duration || 5
+                    });
+                });
+                updateImageGrid();
+                updateTimeline();
+                showToast(`✅ ${e.data.images.length}개 이미지 추가됨`);
+            }
+        });
+    </script>
+</body>
+</html>

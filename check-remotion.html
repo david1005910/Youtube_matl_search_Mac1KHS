@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Remotion 서버 상태 확인</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .status-card {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            border: 2px solid #e9ecef;
+            transition: all 0.3s ease;
+        }
+        .status-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .status-card.online {
+            border-color: #28a745;
+            background: #d4edda;
+        }
+        .status-card.offline {
+            border-color: #dc3545;
+            background: #f8d7da;
+        }
+        .status-card.checking {
+            border-color: #ffc107;
+            background: #fff3cd;
+        }
+        .status-icon {
+            font-size: 48px;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .status-title {
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .status-message {
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+        }
+        button {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            margin: 20px 0;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        button:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        .command-box {
+            background: #2d3748;
+            color: #48bb78;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            margin: 10px 0;
+            position: relative;
+        }
+        .copy-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 5px 10px;
+            background: #4a5568;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .copy-btn:hover {
+            background: #2d3748;
+        }
+        .endpoints {
+            background: #f1f5f9;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        .endpoint {
+            display: flex;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .endpoint:last-child {
+            border-bottom: none;
+        }
+        .method {
+            background: #3b82f6;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-right: 10px;
+            min-width: 50px;
+            text-align: center;
+        }
+        .method.get {
+            background: #10b981;
+        }
+        .path {
+            font-family: 'Courier New', monospace;
+            color: #1e293b;
+            flex: 1;
+        }
+        .description {
+            color: #64748b;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        .checking .status-icon {
+            animation: pulse 1.5s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 Remotion 서버 상태 확인</h1>
+        
+        <div id="status-card" class="status-card checking">
+            <div class="status-icon">⏳</div>
+            <div class="status-title">확인 중...</div>
+            <div class="status-message">Remotion 서버 연결을 확인하고 있습니다.</div>
+        </div>
+        
+        <button onclick="checkServer()">🔄 다시 확인</button>
+        
+        <div class="command-box">
+            <button class="copy-btn" onclick="copyCommand()">📋 복사</button>
+            <div id="command">cd remotion && npm start</div>
+        </div>
+        
+        <div class="endpoints">
+            <h3>📡 사용 가능한 엔드포인트</h3>
+            <div class="endpoint">
+                <span class="method get">GET</span>
+                <span class="path">/health</span>
+                <span class="description">서버 상태 확인</span>
+            </div>
+            <div class="endpoint">
+                <span class="method">POST</span>
+                <span class="path">/render</span>
+                <span class="description">자막 굽기</span>
+            </div>
+            <div class="endpoint">
+                <span class="method">POST</span>
+                <span class="path">/render-image</span>
+                <span class="description">단일 이미지 → 영상</span>
+            </div>
+            <div class="endpoint">
+                <span class="method">POST</span>
+                <span class="path">/render-slideshow</span>
+                <span class="description">이미지 슬라이드쇼 → 영상 🆕</span>
+            </div>
+        </div>
+        
+        <button onclick="testVideoGeneration()">🎬 테스트 영상 생성</button>
+    </div>
+    
+    <script>
+        async function checkServer() {
+            const card = document.getElementById('status-card');
+            const command = document.getElementById('command');
+            
+            // 확인 중 상태
+            card.className = 'status-card checking';
+            card.innerHTML = `
+                <div class="status-icon">⏳</div>
+                <div class="status-title">확인 중...</div>
+                <div class="status-message">Remotion 서버 연결을 확인하고 있습니다.</div>
+            `;
+            
+            try {
+                const response = await fetch('http://localhost:8766/health');
+                const data = await response.json();
+                
+                if (data.ok) {
+                    // 서버 온라인
+                    card.className = 'status-card online';
+                    card.innerHTML = `
+                        <div class="status-icon">✅</div>
+                        <div class="status-title">서버 작동 중!</div>
+                        <div class="status-message">
+                            Remotion 서버가 정상적으로 작동하고 있습니다.<br>
+                            http://localhost:8766
+                        </div>
+                    `;
+                    command.textContent = '# 서버가 이미 실행 중입니다!';
+                } else {
+                    throw new Error('Server not ready');
+                }
+            } catch (error) {
+                // 서버 오프라인
+                card.className = 'status-card offline';
+                card.innerHTML = `
+                    <div class="status-icon">❌</div>
+                    <div class="status-title">서버 오프라인</div>
+                    <div class="status-message">
+                        Remotion 서버가 실행되지 않았습니다.<br>
+                        아래 명령어로 서버를 시작하세요.
+                    </div>
+                `;
+                command.textContent = 'cd remotion && npm start';
+            }
+        }
+        
+        function copyCommand() {
+            const command = document.getElementById('command').textContent;
+            navigator.clipboard.writeText(command);
+            
+            const btn = document.querySelector('.copy-btn');
+            btn.textContent = '✅ 복사됨!';
+            setTimeout(() => {
+                btn.textContent = '📋 복사';
+            }, 2000);
+        }
+        
+        async function testVideoGeneration() {
+            const card = document.getElementById('status-card');
+            
+            try {
+                // 먼저 서버 상태 확인
+                const healthCheck = await fetch('http://localhost:8766/health');
+                if (!healthCheck.ok) throw new Error('Server offline');
+                
+                card.className = 'status-card checking';
+                card.innerHTML = `
+                    <div class="status-icon">🎬</div>
+                    <div class="status-title">테스트 영상 생성 중...</div>
+                    <div class="status-message">샘플 이미지로 5초 영상을 생성합니다.</div>
+                `;
+                
+                // 테스트 이미지 생성
+                const canvas = document.createElement('canvas');
+                canvas.width = 1920;
+                canvas.height = 1080;
+                const ctx = canvas.getContext('2d');
+                
+                // 그라디언트 배경
+                const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+                gradient.addColorStop(0, '#667eea');
+                gradient.addColorStop(1, '#764ba2');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // 텍스트
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 80px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Remotion Test', canvas.width/2, canvas.height/2);
+                ctx.font = '40px Arial';
+                ctx.fillText('서버가 정상 작동합니다!', canvas.width/2, canvas.height/2 + 100);
+                
+                const imageSrc = canvas.toDataURL();
+                
+                // 서버로 전송
+                const response = await fetch('http://localhost:8766/render-image', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        imageSrc: imageSrc,
+                        subtitle: 'Remotion 테스트 영상',
+                        duration: 5
+                    })
+                });
+                
+                if (response.ok) {
+                    // Blob으로 변환하여 다운로드
+                    const blob = await response.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'remotion_test.mp4';
+                    a.click();
+                    
+                    card.className = 'status-card online';
+                    card.innerHTML = `
+                        <div class="status-icon">🎉</div>
+                        <div class="status-title">테스트 성공!</div>
+                        <div class="status-message">
+                            테스트 영상이 생성되어 다운로드되었습니다.<br>
+                            remotion_test.mp4
+                        </div>
+                    `;
+                } else {
+                    throw new Error('Generation failed');
+                }
+                
+            } catch (error) {
+                card.className = 'status-card offline';
+                card.innerHTML = `
+                    <div class="status-icon">❌</div>
+                    <div class="status-title">테스트 실패</div>
+                    <div class="status-message">
+                        서버가 실행되지 않았거나 오류가 발생했습니다.<br>
+                        ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        // 페이지 로드 시 자동 확인
+        checkServer();
+        
+        // 5초마다 자동 확인
+        setInterval(checkServer, 5000);
+    </script>
+</body>
+</html>
