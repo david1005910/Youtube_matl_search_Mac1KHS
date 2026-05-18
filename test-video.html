@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>🎬 영상 생성 테스트</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+        .container {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+        }
+        button {
+            padding: 15px 30px;
+            margin: 10px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .primary {
+            background: linear-gradient(135deg, #f093fb, #f5576c);
+            color: white;
+        }
+        .primary:hover {
+            transform: scale(1.05);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        .success {
+            background: #28a745;
+            color: white;
+        }
+        .info {
+            background: #17a2b8;
+            color: white;
+        }
+        #status {
+            margin: 20px 0;
+            padding: 20px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            min-height: 100px;
+        }
+        #preview {
+            margin: 20px 0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        video {
+            width: 100%;
+            border-radius: 10px;
+        }
+        .log {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 Remotion 영상 생성 테스트</h1>
+        
+        <div>
+            <button class="info" onclick="checkServer()">🔍 서버 상태 확인</button>
+            <button class="success" onclick="createTestImage()">🎨 테스트 이미지 생성</button>
+            <button class="primary" onclick="generateVideo()">🎬 영상 생성</button>
+        </div>
+        
+        <div id="status">
+            <h3>상태:</h3>
+            <div id="statusText">준비됨</div>
+        </div>
+        
+        <div id="preview"></div>
+    </div>
+    
+    <script>
+        let testImageData = null;
+        
+        function log(message) {
+            const statusDiv = document.getElementById('statusText');
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log';
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            statusDiv.appendChild(logEntry);
+            console.log(message);
+        }
+        
+        async function checkServer() {
+            log('🔍 Remotion 서버 확인 중...');
+            try {
+                const response = await fetch('http://localhost:8766/health');
+                const data = await response.json();
+                if (data.ok) {
+                    log('✅ 서버가 정상 작동 중입니다!');
+                } else {
+                    throw new Error('Server not ready');
+                }
+            } catch (error) {
+                log('❌ 서버 오프라인 - cd remotion && npm start 실행 필요');
+            }
+        }
+        
+        function createTestImage() {
+            log('🎨 테스트 이미지 생성 중...');
+            
+            const canvas = document.createElement('canvas');
+            canvas.width = 1920;
+            canvas.height = 1080;
+            const ctx = canvas.getContext('2d');
+            
+            // 그라디언트 배경
+            const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+            gradient.addColorStop(0, '#667eea');
+            gradient.addColorStop(0.5, '#764ba2');
+            gradient.addColorStop(1, '#f093fb');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 원 패턴
+            for (let i = 0; i < 10; i++) {
+                ctx.beginPath();
+                ctx.arc(
+                    Math.random() * canvas.width,
+                    Math.random() * canvas.height,
+                    Math.random() * 100 + 50,
+                    0,
+                    Math.PI * 2
+                );
+                ctx.fillStyle = `rgba(255, 255, 255, ${Math.random() * 0.3})`;
+                ctx.fill();
+            }
+            
+            // 텍스트
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 100px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = 'rgba(0,0,0,0.5)';
+            ctx.shadowBlur = 10;
+            ctx.fillText('REMOTION TEST', canvas.width/2, canvas.height/2 - 50);
+            
+            ctx.font = '60px Arial';
+            ctx.fillText('영상 생성 테스트', canvas.width/2, canvas.height/2 + 50);
+            
+            ctx.font = '40px Arial';
+            const now = new Date().toLocaleString('ko-KR');
+            ctx.fillText(now, canvas.width/2, canvas.height/2 + 150);
+            
+            testImageData = canvas.toDataURL('image/png');
+            
+            // 미리보기 표시
+            const preview = document.getElementById('preview');
+            preview.innerHTML = `<img src="${testImageData}" style="width: 100%; border-radius: 10px;">`;
+            
+            log('✅ 테스트 이미지 생성 완료!');
+        }
+        
+        async function generateVideo() {
+            if (!testImageData) {
+                log('⚠️ 먼저 테스트 이미지를 생성하세요!');
+                createTestImage();
+                // 이미지 생성 후 잠시 대기
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+            
+            log('🎬 영상 생성 시작...');
+            
+            try {
+                // 서버 확인
+                log('🔍 서버 상태 확인 중...');
+                const healthCheck = await fetch('http://localhost:8766/health');
+                const healthData = await healthCheck.json();
+                
+                if (!healthData.ok) {
+                    throw new Error('Server not ready');
+                }
+                log('✅ 서버 정상 작동 확인');
+                
+                log('📡 렌더링 요청 준비 중...');
+                
+                // 요청 데이터 준비
+                const requestData = {
+                    imageSrc: testImageData,
+                    subtitle: 'Remotion 테스트 영상',
+                    duration: 5,
+                    fps: 30,
+                    width: 1920,
+                    height: 1080
+                };
+                
+                log('📤 요청 데이터 전송 중...');
+                log(`  - 이미지 크기: ${(testImageData.length / 1024).toFixed(2)}KB`);
+                log(`  - 영상 길이: ${requestData.duration}초`);
+                log(`  - 해상도: ${requestData.width}x${requestData.height}`);
+                
+                const response = await fetch('http://localhost:8766/render-image', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestData)
+                });
+                
+                log('⏳ 서버 응답 대기 중...');
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    log(`❌ 서버 에러: ${response.status}`);
+                    log(`에러 내용: ${errorText}`);
+                    throw new Error(`Server error ${response.status}: ${errorText}`);
+                }
+                
+                log('📥 영상 데이터 수신 중...');
+                const blob = await response.blob();
+                
+                if (blob.size === 0) {
+                    throw new Error('빈 파일이 반환됨');
+                }
+                
+                log(`✅ 렌더링 완료! (크기: ${(blob.size / 1024 / 1024).toFixed(2)}MB)`);
+                
+                // 다운로드
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `test_video_${Date.now()}.mp4`;
+                a.click();
+                
+                // 미리보기
+                const preview = document.getElementById('preview');
+                preview.innerHTML = `
+                    <h3>생성된 영상:</h3>
+                    <video src="${url}" controls autoplay style="width: 100%;"></video>
+                `;
+                
+                log('🎉 영상 다운로드 완료!');
+                log('📁 다운로드 폴더를 확인하세요');
+                
+            } catch (error) {
+                log(`❌ 오류 발생: ${error.message}`);
+                
+                if (error.message.includes('fetch failed')) {
+                    log('💡 네트워크 오류 - 해결 방법:');
+                    log('1. Remotion 서버가 실행 중인지 확인');
+                    log('2. 터미널에서: cd remotion && npm start');
+                    log('3. http://localhost:8766/health 접속 확인');
+                } else if (error.message.includes('Server error')) {
+                    log('💡 서버 오류 - 로그를 확인하세요');
+                    log('터미널에서 Remotion 서버 로그를 확인하세요');
+                } else {
+                    log('💡 일반 오류 - 콘솔 로그 확인');
+                    console.error('Full error:', error);
+                }
+            }
+        }
+        
+        // 페이지 로드 시 서버 확인
+        window.onload = () => {
+            checkServer();
+        };
+    </script>
+</body>
+</html>

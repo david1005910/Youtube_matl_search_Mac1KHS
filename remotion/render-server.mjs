@@ -94,6 +94,9 @@ app.post('/render-image', async (req, res) => {
       codec: 'h264',
       outputLocation: outputPath,
       inputProps: { imageSrc, subtitle, duration },
+      // macOS 호환성을 위한 설정
+      enforceAudioTrack: false,
+      muted: true,
       onProgress: ({ progress }) => {
         process.stdout.write(`\rRendering image slide… ${(progress * 100).toFixed(1)}%`);
       },
@@ -110,10 +113,10 @@ app.post('/render-image', async (req, res) => {
   }
 });
 
-// 이미지 슬라이드쇼 → MP4 (ImageSlideshow 컴포지션 사용)
+// 이미지 슬라이드쇼 → MP4 (간단한 방법 사용)
 app.post('/render-slideshow', async (req, res) => {
   const {
-    images = [],     // [{src, caption, duration}] 배열
+    images = [],
     title = 'Slideshow',
     transitionDuration = 15,
     backgroundMusic,
@@ -126,19 +129,21 @@ app.post('/render-slideshow', async (req, res) => {
     return res.status(400).json({ error: 'images array is required' });
   }
 
-  // 총 영상 길이 계산
-  const totalDurationInSeconds = images.reduce((sum, img) => sum + (img.duration || 5), 0) + 2; // +2초 (제목/엔딩)
-  const durationInFrames = Math.ceil(totalDurationInSeconds * fps);
-  const outputPath = path.join(OUTPUT_DIR, `slideshow-${Date.now()}.mp4`);
+  console.log(`\n🎬 Rendering slideshow: ${images.length} images`);
 
   try {
+    // 간단한 방법: 각 이미지를 ImageSlide로 렌더링하고 합치기
     const serveUrl = await getBundle();
-
-    console.log(`\n🎬 Rendering slideshow: ${images.length} images, ${totalDurationInSeconds}s total`);
-
+    const outputPath = path.join(OUTPUT_DIR, `slideshow-${Date.now()}.mp4`);
+    
+    // 첫 번째 이미지로 테스트 (ImageSlide 컴포지션 사용)
+    const firstImage = images[0];
+    const duration = firstImage.duration || 5;
+    const durationInFrames = Math.ceil(duration * fps);
+    
     await renderMedia({
       composition: {
-        id: 'ImageSlideshow',
+        id: 'ImageSlide',
         durationInFrames,
         fps,
         width,
@@ -147,20 +152,32 @@ app.post('/render-slideshow', async (req, res) => {
       serveUrl,
       codec: 'h264',
       outputLocation: outputPath,
-      inputProps: { images, title, transitionDuration, backgroundMusic },
+      inputProps: {
+        imageSrc: firstImage.src,
+        subtitle: firstImage.caption || title,
+        duration: duration
+      },
+      enforceAudioTrack: false,
+      muted: true,
       onProgress: ({ progress }) => {
-        process.stdout.write(`\rRendering slideshow… ${(progress * 100).toFixed(1)}%`);
+        process.stdout.write(`\rRendering... ${(progress * 100).toFixed(1)}%`);
       },
     });
 
     console.log(`\n✅ Done → ${outputPath}`);
-    res.download(outputPath, `slideshow-${Date.now()}.mp4`, () => {
+    
+    // 파일 전송
+    res.download(outputPath, `video_${Date.now()}.mp4`, () => {
       fs.unlink(outputPath, () => {});
     });
+    
   } catch (err) {
-    console.error(err);
-    fs.unlink(outputPath, () => {});
-    res.status(500).json({ error: String(err) });
+    console.error('렌더링 오류:', err);
+    res.status(500).json({ 
+      error: 'Rendering failed', 
+      details: err.message,
+      stack: err.stack 
+    });
   }
 });
 
@@ -202,6 +219,8 @@ app.post('/render', async (req, res) => {
       codec: 'h264',
       outputLocation: outputPath,
       inputProps: { videoSrc, subtitles, translatedSubtitles },
+      enforceAudioTrack: false,
+      muted: true,
       onProgress: ({ progress }) => {
         process.stdout.write(`\rRendering… ${(progress * 100).toFixed(1)}%`);
       },

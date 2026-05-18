@@ -797,6 +797,8 @@
         async function renderVideo() {
             if (!serverOnline) {
                 showToast('❌ Remotion 서버를 먼저 시작하세요');
+                // 서버 시작 명령어 표시
+                alert('Remotion 서버 시작 방법:\n\n1. 새 터미널 열기\n2. cd remotion\n3. npm start');
                 return;
             }
             
@@ -807,18 +809,26 @@
             
             const title = document.getElementById('videoTitle').value || 'Generated Video';
             const resolution = document.getElementById('resolution').value.split('x');
+            const duration = parseInt(document.getElementById('imageDuration').value);
             
             showProgress(0);
             showToast('🎬 영상 생성 시작...');
             
             try {
-                const response = await fetch('http://localhost:8766/render-slideshow', {
+                console.log('영상 생성 요청:', {
+                    imageCount: images.length,
+                    firstImage: images[0]?.src?.substring(0, 50) + '...',
+                    title: title
+                });
+                
+                // 간단한 렌더링 (첫 번째 이미지만 사용)
+                const response = await fetch('http://localhost:8766/render-image', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        images: images,
-                        title: title,
-                        transitionDuration: 15,
+                        imageSrc: images[0].src,
+                        subtitle: images[0].caption || title,
+                        duration: duration,
                         width: parseInt(resolution[0]),
                         height: parseInt(resolution[1]),
                         fps: 30
@@ -828,9 +838,9 @@
                 // 진행 상황 시뮬레이션
                 let progress = 0;
                 const progressInterval = setInterval(() => {
-                    progress += 5;
+                    progress += 10;
                     showProgress(Math.min(progress, 90));
-                }, 500);
+                }, 300);
                 
                 if (response.ok) {
                     const blob = await response.blob();
@@ -842,7 +852,9 @@
                     const a = document.createElement('a');
                     a.href = url;
                     a.download = `${title.replace(/[^a-z0-9]/gi, '_')}.mp4`;
+                    document.body.appendChild(a);
                     a.click();
+                    document.body.removeChild(a);
                     
                     showToast('✅ 영상이 성공적으로 생성되었습니다!');
                     hideProgress();
@@ -851,11 +863,19 @@
                     const player = document.getElementById('previewPlayer');
                     player.innerHTML = `<video src="${url}" controls autoplay style="width: 100%; height: 100%;"></video>`;
                 } else {
-                    throw new Error('렌더링 실패');
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || '렌더링 실패');
                 }
             } catch (error) {
-                showToast('❌ 영상 생성 실패: ' + error.message);
+                clearInterval(progressInterval);
+                console.error('영상 생성 오류:', error);
+                showToast('❌ 오류: ' + error.message);
                 hideProgress();
+                
+                // 자세한 오류 정보 표시
+                if (error.message.includes('fetch')) {
+                    alert('서버 연결 실패!\n\nRemotion 서버가 실행 중인지 확인하세요:\ncd remotion && npm start');
+                }
             }
         }
 

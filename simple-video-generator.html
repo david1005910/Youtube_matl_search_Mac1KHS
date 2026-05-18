@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>🎬 간단한 영상 생성기</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            max-width: 1000px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+        .container {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+        }
+        button {
+            padding: 15px 30px;
+            margin: 10px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .primary {
+            background: linear-gradient(135deg, #f093fb, #f5576c);
+            color: white;
+        }
+        .primary:hover {
+            transform: scale(1.05);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        .success {
+            background: #28a745;
+            color: white;
+        }
+        .info {
+            background: #17a2b8;
+            color: white;
+        }
+        #status {
+            margin: 20px 0;
+            padding: 20px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            min-height: 100px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        #preview {
+            margin: 20px 0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .log {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+            margin: 5px 0;
+        }
+        .settings {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .setting-group {
+            background: rgba(0,0,0,0.2);
+            padding: 15px;
+            border-radius: 10px;
+        }
+        .setting-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .setting-group input, .setting-group select, .setting-group textarea {
+            width: 100%;
+            padding: 8px;
+            border-radius: 5px;
+            border: none;
+            background: rgba(255,255,255,0.9);
+            color: #333;
+        }
+        .recording-controls {
+            display: none;
+            background: rgba(255,0,0,0.1);
+            border: 2px solid #ff4444;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: center;
+        }
+        .recording-controls.active {
+            display: block;
+        }
+        .record-button {
+            background: #ff4444;
+            color: white;
+            border: none;
+            padding: 20px 40px;
+            border-radius: 50px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 10px;
+        }
+        .stop-button {
+            background: #444;
+            color: white;
+        }
+        .canvas-preview {
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 10px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 간단한 영상 생성기</h1>
+        
+        <div class="settings">
+            <div class="setting-group">
+                <label>영상 제목</label>
+                <input type="text" id="videoTitle" value="내 영상" placeholder="영상 제목 입력">
+            </div>
+            <div class="setting-group">
+                <label>영상 길이 (초)</label>
+                <input type="number" id="videoDuration" value="5" min="1" max="30">
+            </div>
+            <div class="setting-group">
+                <label>FPS</label>
+                <select id="videoFps">
+                    <option value="24">24 fps</option>
+                    <option value="30" selected>30 fps</option>
+                    <option value="60">60 fps</option>
+                </select>
+            </div>
+            <div class="setting-group">
+                <label>해상도</label>
+                <select id="videoResolution">
+                    <option value="640x480">SD (640x480)</option>
+                    <option value="1280x720" selected>HD (1280x720)</option>
+                    <option value="1920x1080">Full HD (1920x1080)</option>
+                </select>
+            </div>
+            <div class="setting-group">
+                <label>배경 스타일</label>
+                <select id="backgroundStyle">
+                    <option value="gradient">그라디언트</option>
+                    <option value="solid">단색</option>
+                    <option value="animated">애니메이션</option>
+                </select>
+            </div>
+            <div class="setting-group">
+                <label>텍스트</label>
+                <textarea id="videoText" rows="3" placeholder="영상에 표시할 텍스트 입력">안녕하세요!
+이것은 테스트 영상입니다.</textarea>
+            </div>
+        </div>
+        
+        <div>
+            <button class="success" onclick="generateFrames()">🎨 프레임 생성</button>
+            <button class="primary" onclick="startRecording()" id="recordBtn">🎥 영상 녹화</button>
+            <button class="info" onclick="downloadFrames()">💾 프레임 다운로드</button>
+        </div>
+        
+        <div class="recording-controls" id="recordingControls">
+            <h3>🔴 녹화 중...</h3>
+            <p>프레임이 자동으로 재생됩니다. 녹화를 중지하려면 버튼을 클릭하세요.</p>
+            <button class="record-button stop-button" onclick="stopRecording()">⏹ 녹화 중지</button>
+        </div>
+        
+        <div id="status">
+            <h3>상태:</h3>
+            <div id="statusText">설정을 조정하고 '프레임 생성'을 클릭하세요</div>
+        </div>
+        
+        <div id="preview">
+            <canvas id="mainCanvas" class="canvas-preview" width="1280" height="720" style="width: 100%; max-width: 640px;"></canvas>
+        </div>
+    </div>
+    
+    <script>
+        let generatedFrames = [];
+        let animationId = null;
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let isRecording = false;
+        
+        function log(message) {
+            const statusDiv = document.getElementById('statusText');
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log';
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            statusDiv.appendChild(logEntry);
+            statusDiv.scrollTop = statusDiv.scrollHeight;
+            console.log(message);
+        }
+        
+        function generateFrames() {
+            const title = document.getElementById('videoTitle').value;
+            const duration = parseInt(document.getElementById('videoDuration').value);
+            const fps = parseInt(document.getElementById('videoFps').value);
+            const resolution = document.getElementById('videoResolution').value;
+            const backgroundStyle = document.getElementById('backgroundStyle').value;
+            const text = document.getElementById('videoText').value;
+            
+            const [width, height] = resolution.split('x').map(Number);
+            const totalFrames = duration * fps;
+            
+            log(`🎨 ${totalFrames}개 프레임 생성 시작...`);
+            log(`설정: ${width}x${height}, ${fps}fps, ${duration}초`);
+            
+            const canvas = document.getElementById('mainCanvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            
+            generatedFrames = [];
+            
+            for (let frame = 0; frame < totalFrames; frame++) {
+                const progress = frame / totalFrames;
+                
+                // 배경 그리기
+                drawBackground(ctx, width, height, backgroundStyle, progress);
+                
+                // 텍스트 그리기
+                drawText(ctx, width, height, text, progress);
+                
+                // 프레임 저장
+                generatedFrames.push(canvas.toDataURL('image/png'));
+                
+                if (frame % 30 === 0) {
+                    log(`진행: ${frame}/${totalFrames} 프레임 (${(progress * 100).toFixed(1)}%)`);
+                }
+            }
+            
+            log(`✅ ${totalFrames}개 프레임 생성 완료!`);
+            log('🎥 이제 "영상 녹화" 버튼을 클릭하세요');
+            
+            // 첫 번째 프레임 미리보기
+            playPreview();
+        }
+        
+        function drawBackground(ctx, width, height, style, progress) {
+            ctx.save();
+            
+            if (style === 'gradient') {
+                const gradient = ctx.createLinearGradient(0, 0, width, height);
+                const hue = (progress * 360) % 360;
+                gradient.addColorStop(0, `hsl(${hue}, 70%, 60%)`);
+                gradient.addColorStop(0.5, `hsl(${(hue + 60) % 360}, 70%, 50%)`);
+                gradient.addColorStop(1, `hsl(${(hue + 120) % 360}, 70%, 60%)`);
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, width, height);
+            } else if (style === 'solid') {
+                const hue = (progress * 360) % 360;
+                ctx.fillStyle = `hsl(${hue}, 50%, 30%)`;
+                ctx.fillRect(0, 0, width, height);
+            } else if (style === 'animated') {
+                // 애니메이션 배경
+                const gradient = ctx.createLinearGradient(0, 0, width, height);
+                const time = progress * Math.PI * 4;
+                gradient.addColorStop(0, `rgba(${100 + Math.sin(time) * 50}, ${100 + Math.cos(time) * 50}, 200, 1)`);
+                gradient.addColorStop(1, `rgba(200, ${100 + Math.sin(time + 1) * 50}, ${100 + Math.cos(time + 1) * 50}, 1)`);
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, width, height);
+                
+                // 움직이는 원들
+                for (let i = 0; i < 5; i++) {
+                    const angle = time + i * Math.PI / 3;
+                    const x = width/2 + Math.cos(angle) * width/4;
+                    const y = height/2 + Math.sin(angle) * height/4;
+                    const radius = 30 + Math.sin(time + i) * 20;
+                    
+                    ctx.beginPath();
+                    ctx.arc(x, y, radius, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(255, 255, 255, ${0.1 + Math.sin(time + i) * 0.1})`;
+                    ctx.fill();
+                }
+            }
+            
+            ctx.restore();
+        }
+        
+        function drawText(ctx, width, height, text, progress) {
+            ctx.save();
+            
+            const lines = text.split('\n').filter(line => line.trim());
+            if (lines.length === 0) return;
+            
+            // 텍스트 애니메이션 (페이드인 + 스케일)
+            const fadeIn = Math.min(progress * 3, 1);
+            const scale = 0.5 + fadeIn * 0.5;
+            
+            ctx.globalAlpha = fadeIn;
+            ctx.translate(width/2, height/2);
+            ctx.scale(scale, scale);
+            
+            // 텍스트 스타일
+            const fontSize = Math.min(width, height) / 15;
+            ctx.font = `bold ${fontSize}px 'Apple SD Gothic Neo', sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // 텍스트 그림자
+            ctx.shadowColor = 'rgba(0,0,0,0.8)';
+            ctx.shadowBlur = 10;
+            ctx.shadowOffsetX = 2;
+            ctx.shadowOffsetY = 2;
+            
+            // 각 라인 그리기
+            const lineHeight = fontSize * 1.2;
+            const totalHeight = lines.length * lineHeight;
+            const startY = -totalHeight/2 + lineHeight/2;
+            
+            lines.forEach((line, index) => {
+                const y = startY + index * lineHeight;
+                
+                // 각 라인별 애니메이션 지연
+                const lineDelay = index * 0.2;
+                const lineProgress = Math.max(0, Math.min(1, (progress - lineDelay) * 2));
+                
+                if (lineProgress > 0) {
+                    ctx.globalAlpha = fadeIn * lineProgress;
+                    ctx.fillStyle = 'white';
+                    ctx.fillText(line, 0, y);
+                }
+            });
+            
+            ctx.restore();
+        }
+        
+        function playPreview() {
+            if (generatedFrames.length === 0) return;
+            
+            let frameIndex = 0;
+            const fps = parseInt(document.getElementById('videoFps').value);
+            const frameDelay = 1000 / fps;
+            
+            function showFrame() {
+                if (frameIndex < generatedFrames.length) {
+                    const canvas = document.getElementById('mainCanvas');
+                    const ctx = canvas.getContext('2d');
+                    const img = new Image();
+                    
+                    img.onload = () => {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(img, 0, 0);
+                    };
+                    
+                    img.src = generatedFrames[frameIndex];
+                    frameIndex = (frameIndex + 1) % generatedFrames.length;
+                    
+                    if (!isRecording) {
+                        animationId = setTimeout(showFrame, frameDelay);
+                    }
+                }
+            }
+            
+            showFrame();
+        }
+        
+        function startRecording() {
+            if (generatedFrames.length === 0) {
+                log('❌ 먼저 프레임을 생성하세요!');
+                return;
+            }
+            
+            const canvas = document.getElementById('mainCanvas');
+            const stream = canvas.captureStream(parseInt(document.getElementById('videoFps').value));
+            
+            recordedChunks = [];
+            mediaRecorder = new MediaRecorder(stream, {
+                mimeType: 'video/webm;codecs=vp9'
+            });
+            
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    recordedChunks.push(event.data);
+                }
+            };
+            
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                const url = URL.createObjectURL(blob);
+                
+                // 다운로드
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${document.getElementById('videoTitle').value}_${Date.now()}.webm`;
+                a.click();
+                
+                // 미리보기
+                const preview = document.getElementById('preview');
+                preview.innerHTML = `
+                    <h3>생성된 영상:</h3>
+                    <video src="${url}" controls style="width: 100%; max-width: 640px; border-radius: 10px;">
+                        Your browser does not support the video tag.
+                    </video>
+                    <canvas id="mainCanvas" class="canvas-preview" width="1280" height="720" style="width: 100%; max-width: 640px; display: none;"></canvas>
+                `;
+                
+                log(`✅ 영상 생성 완료! (크기: ${(blob.size / 1024 / 1024).toFixed(2)}MB)`);
+                log('📁 파일이 다운로드되었습니다');
+                
+                isRecording = false;
+                document.getElementById('recordingControls').classList.remove('active');
+            };
+            
+            // 녹화 시작
+            isRecording = true;
+            mediaRecorder.start();
+            document.getElementById('recordingControls').classList.add('active');
+            
+            log('🔴 영상 녹화 시작...');
+            
+            // 프레임 재생
+            playRecordingFrames();
+        }
+        
+        function playRecordingFrames() {
+            if (!isRecording || generatedFrames.length === 0) return;
+            
+            let frameIndex = 0;
+            const fps = parseInt(document.getElementById('videoFps').value);
+            const frameDelay = 1000 / fps;
+            const totalDuration = parseInt(document.getElementById('videoDuration').value) * 1000;
+            
+            function showFrame() {
+                if (isRecording && frameIndex < generatedFrames.length) {
+                    const canvas = document.getElementById('mainCanvas');
+                    const ctx = canvas.getContext('2d');
+                    const img = new Image();
+                    
+                    img.onload = () => {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(img, 0, 0);
+                    };
+                    
+                    img.src = generatedFrames[frameIndex];
+                    frameIndex = (frameIndex + 1) % generatedFrames.length;
+                    
+                    setTimeout(showFrame, frameDelay);
+                }
+            }
+            
+            showFrame();
+            
+            // 자동 중지
+            setTimeout(() => {
+                if (isRecording) {
+                    stopRecording();
+                }
+            }, totalDuration);
+        }
+        
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                isRecording = false;
+                mediaRecorder.stop();
+                log('⏹ 녹화 중지됨');
+            }
+        }
+        
+        function downloadFrames() {
+            if (generatedFrames.length === 0) {
+                log('❌ 먼저 프레임을 생성하세요!');
+                return;
+            }
+            
+            log('📦 프레임 ZIP 파일 생성 중...');
+            
+            // JSZip을 동적으로 로드
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+            script.onload = () => {
+                const zip = new JSZip();
+                const folder = zip.folder('frames');
+                
+                generatedFrames.forEach((frame, index) => {
+                    const base64Data = frame.replace(/^data:image\/png;base64,/, '');
+                    folder.file(`frame_${String(index + 1).padStart(4, '0')}.png`, base64Data, { base64: true });
+                });
+                
+                zip.generateAsync({ type: 'blob' }).then((blob) => {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${document.getElementById('videoTitle').value}_frames_${Date.now()}.zip`;
+                    a.click();
+                    
+                    log(`✅ ${generatedFrames.length}개 프레임 다운로드 완료!`);
+                });
+            };
+            document.head.appendChild(script);
+        }
+        
+        // 페이지 로드 시 미리보기 시작
+        window.onload = () => {
+            log('✅ 영상 생성기가 준비되었습니다');
+            log('💡 설정을 조정하고 "프레임 생성"을 클릭하세요');
+        };
+    </script>
+</body>
+</html>
