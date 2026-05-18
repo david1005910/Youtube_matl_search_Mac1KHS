@@ -308,6 +308,17 @@
     #ttsBody::-webkit-scrollbar-track { background: #0f172a; }
     #ttsBody::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
 
+    /* ── Remotion 영상편집 버튼 ── */
+    #remotionEditorToggle {
+      position: fixed; top: 24px; right: 486px; z-index: 1000;
+      width: 52px; height: 52px; border-radius: 50%;
+      background: linear-gradient(135deg, #f97316, #ea580c);
+      border: none; cursor: pointer; font-size: 22px;
+      box-shadow: 0 4px 20px rgba(249,115,22,0.5);
+      transition: transform 0.2s;
+    }
+    #remotionEditorToggle:hover { transform: scale(1.08); }
+
     /* ── 경량 Vrew 위젯 ── */
     #vrewToggle {
       position: fixed; top: 24px; right: 354px; z-index: 1000;
@@ -1200,6 +1211,8 @@
 <button id="ttsToggle" title="나레이션 음성 생성 (Gemini TTS)">🎙️</button>
 
 <button id="vrewToggle" title="경량 Vrew — 자막 편집 &amp; 렌더링">✂️</button>
+
+<button id="remotionEditorToggle" title="Remotion 영상편집기 (새창)" onclick="window.open('/remotion-editor.html', 'RemotionEditor', 'width=1400,height=900')">🎥</button>
 
 </body>
 </html>
