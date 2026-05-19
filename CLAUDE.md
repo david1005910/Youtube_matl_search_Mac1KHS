@@ -92,6 +92,14 @@ Key source files: `src/Root.tsx`, `src/SubtitleOverlay.tsx`, `src/ImageSlide.tsx
 - `flow-bridge-extension/` — Bridges to Google Flow (labs.google) for automated AI video generation
 - `grok-bridge-extension/` — Bridges to Grok.com for Grok AI integration
 
+## Development Notes
+
+- **No build system**: Frontend uses CDN-based Tailwind CSS; just edit and refresh
+- **macOS SSL**: `server.py` handles SSL certificate issues; install `certifi` if needed (`pip3 install certifi`)
+- **Port allocation**: Main server `:8765`, Remotion `:8766` — avoid conflicts
+- **Large files**: `app.js` (~5,500 lines) and `index.html` are monolithic; search carefully before editing
+- **Health check**: Open `check-remotion.html` to verify Remotion server status
+
 ## API Keys (stored in `.env`)
 
 | Key | Used for |
