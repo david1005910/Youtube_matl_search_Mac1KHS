@@ -350,6 +350,32 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception as e:
                 _send_json(self, 500, {'error': str(e)})
 
+        # ── Pollinations.ai 무료 이미지 생성 ──────────────────────────────
+        elif self.path == '/api/proxy/pollinations-image':
+            import base64 as _b64
+            data = json.loads(body_raw)
+            prompt = data.get('prompt', '')
+            width = data.get('width', 1280)
+            height = data.get('height', 720)
+            model = data.get('model', 'flux')  # flux, turbo, etc.
+
+            # URL 인코딩
+            encoded_prompt = urllib.parse.quote(prompt)
+            url = f'https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&model={model}&nologo=true'
+
+            req = urllib.request.Request(url, headers={'User-Agent': 'YouTubeContentTool/1.0'})
+            try:
+                with urllib.request.urlopen(req, timeout=120, context=_ssl_ctx) as resp:
+                    img_data = resp.read()
+                # base64로 인코딩하여 JSON으로 반환
+                img_b64 = _b64.b64encode(img_data).decode('utf-8')
+                _send_json(self, 200, {'image': img_b64})
+            except urllib.error.HTTPError as e:
+                err_body = e.read() or b'{}'
+                _send_json(self, e.code, {'error': err_body.decode('utf-8', 'replace')})
+            except Exception as e:
+                _send_json(self, 500, {'error': str(e)})
+
         elif self.path == '/api/proxy/gemini':
             # Gemini 텍스트 생성 프록시 (브라우저 직접 호출 시 네트워크 오류 우회)
             data    = json.loads(body_raw)
