@@ -29,6 +29,7 @@ def load_env():
         'TRANSCRIPT_API_KEY': '',
         'XAI_API_KEY': '',
         'IMGBB_API_KEY': '',
+        'STABILITY_API_KEY': '',
     }
     if ENV_FILE.exists():
         for line in ENV_FILE.read_text(encoding='utf-8').splitlines():
@@ -46,6 +47,7 @@ def save_env(data):
         f"TRANSCRIPT_API_KEY={data.get('TRANSCRIPT_API_KEY', '')}\n"
         f"XAI_API_KEY={data.get('XAI_API_KEY', '')}\n"
         f"IMGBB_API_KEY={data.get('IMGBB_API_KEY', '')}\n"
+        f"STABILITY_API_KEY={data.get('STABILITY_API_KEY', '')}\n"
     )
     ENV_FILE.write_text(content, encoding='utf-8')
 
@@ -269,6 +271,69 @@ class Handler(SimpleHTTPRequestHandler):
             )
             try:
                 with urllib.request.urlopen(req, timeout=60, context=_ssl_ctx) as resp:
+                    resp_body = resp.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except urllib.error.HTTPError as e:
+                err_body = e.read() or b'{}'
+                self.send_response(e.code)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(err_body))
+                self.end_headers()
+                self.wfile.write(err_body)
+            except Exception as e:
+                _send_json(self, 500, {'error': str(e)})
+
+        # ── Stable Diffusion (Stability AI) 이미지 생성 ──────────────────
+        elif self.path == '/api/proxy/stability-image':
+            data = json.loads(body_raw)
+            api_key = load_env().get('STABILITY_API_KEY', '')
+            if not api_key:
+                _send_json(self, 400, {'error': 'STABILITY_API_KEY not set'}); return
+
+            prompt = data.get('prompt', '')
+            negative_prompt = data.get('negative_prompt', '')
+            model = data.get('model', 'sd3.5-large')  # sd3.5-large, sd3.5-large-turbo, sd3.5-medium
+            aspect_ratio = data.get('aspect_ratio', '16:9')
+            output_format = data.get('output_format', 'png')
+
+            # Stability AI API v2beta - SD3.5
+            url = f'https://api.stability.ai/v2beta/stable-image/generate/sd3'
+
+            # multipart/form-data 형식으로 전송
+            boundary = '----WebKitFormBoundary7MA4YWxkTrZu0gW'
+            body_parts = []
+
+            def add_field(name, value):
+                body_parts.append(f'--{boundary}\r\n'.encode())
+                body_parts.append(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode())
+                body_parts.append(f'{value}\r\n'.encode())
+
+            add_field('prompt', prompt)
+            add_field('model', model)
+            add_field('aspect_ratio', aspect_ratio)
+            add_field('output_format', output_format)
+            if negative_prompt:
+                add_field('negative_prompt', negative_prompt)
+
+            body_parts.append(f'--{boundary}--\r\n'.encode())
+            form_body = b''.join(body_parts)
+
+            req = urllib.request.Request(
+                url,
+                data=form_body,
+                headers={
+                    'Authorization': f'Bearer {api_key}',
+                    'Content-Type': f'multipart/form-data; boundary={boundary}',
+                    'Accept': 'application/json',
+                    'User-Agent': 'YouTubeContentTool/1.0',
+                }
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=120, context=_ssl_ctx) as resp:
                     resp_body = resp.read()
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')

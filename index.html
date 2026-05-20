@@ -521,6 +521,7 @@
     <span id="apiStatusGem" class="text-xs text-slate-500">Gemini ···</span>
     <span id="apiStatusTr"  class="text-xs text-slate-500">Transcript ···</span>
     <span id="apiStatusXai" class="text-xs text-slate-500">xAI ···</span>
+    <span id="apiStatusStability" class="text-xs text-slate-500">Stability ···</span>
   </div>
 
   <!-- 검색 영역 -->
@@ -911,14 +912,25 @@
 </div>
 <button id="grokVideoToggle" title="Grok 영상 생성 (xAI)">🎥</button>
 
-<!-- ── Gemini 이미지 생성 모달 ── -->
+<!-- ── AI 이미지 생성 모달 ── -->
 <div id="grokModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 hidden px-4 py-6"
      onclick="if(event.target===this) closeGrokModal()">
   <div class="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
     <div class="flex justify-between items-center px-6 py-4 border-b border-slate-700 flex-shrink-0">
-      <div>
-        <h3 class="text-base font-bold text-blue-300">🎨 Gemini Imagen 이미지 생성</h3>
-        <p class="text-xs text-slate-400 mt-0.5">프롬프트 검증 → Gemini Imagen 4 생성 · 스크립트/자막 편집 · 전체 내보내기</p>
+      <div class="flex-1">
+        <h3 class="text-base font-bold text-blue-300">🎨 AI 이미지 생성</h3>
+        <p class="text-xs text-slate-400 mt-0.5">프롬프트 검증 → AI 이미지 생성 · 스크립트/자막 편집 · 전체 내보내기</p>
+        <!-- 이미지 모델 선택 토글 -->
+        <div class="flex gap-2 mt-2">
+          <button id="imgModelImagen" onclick="setImageModel('imagen')"
+            class="flex-1 py-1.5 text-xs font-bold rounded-lg transition bg-blue-600 text-white border-blue-500">
+            🌈 Gemini Imagen
+          </button>
+          <button id="imgModelStability" onclick="setImageModel('stability')"
+            class="flex-1 py-1.5 text-xs font-bold rounded-lg transition bg-slate-700 text-slate-300 border-slate-600">
+            🎨 Stable Diffusion
+          </button>
+        </div>
       </div>
       <button onclick="closeGrokModal()" class="text-slate-400 hover:text-white text-xl leading-none ml-4">✕</button>
     </div>

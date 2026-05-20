@@ -58,6 +58,7 @@ cd remotion && npm run studio              # Opens Remotion Studio GUI
 
 ### `server.py` — API Endpoints
 
+**Config & Skills:**
 | Route | Purpose |
 |-------|---------|
 | `GET /api/config` | Return `.env` key values |
@@ -66,9 +67,28 @@ cd remotion && npm run studio              # Opens Remotion Studio GUI
 | `GET /api/skill/<name>` | Return SKILL.md content for a sub-skill |
 | `GET /api/yt-skills` | List youtube-skills-main skills |
 | `GET /api/yt-skill/<name>` | Return SKILL.md content |
-| `POST /api/proxy/transcriptapi` | Proxy to transcriptapi.com |
-| `POST /api/proxy/gemini-image` | Proxy to Imagen 4.0 image generation |
+
+**API Proxies:**
+| Route | Purpose |
+|-------|---------|
 | `GET /api/proxy/youtube/<endpoint>` | Proxy YouTube Data API v3 calls |
+| `POST /api/proxy/transcriptapi` | Proxy to transcriptapi.com |
+| `POST /api/proxy/gemini` | Proxy Gemini text generation |
+| `POST /api/proxy/gemini-image` | Proxy to Imagen 4.0 image generation |
+| `POST /api/proxy/gemini-tts` | Gemini TTS (text-to-speech) |
+
+**Grok Video (requires `XAI_API_KEY`):**
+| Route | Purpose |
+|-------|---------|
+| `POST /api/proxy/grok-video` | Start Grok video generation (text→video or image→video) |
+| `GET /api/proxy/grok-video/<id>` | Poll Grok video generation status |
+| `POST /api/proxy/grok-video-concat` | Concatenate multiple video URLs via ffmpeg |
+
+**Video Processing (requires ffmpeg):**
+| Route | Purpose |
+|-------|---------|
+| `POST /api/proxy/video-audio-merge` | Merge video + audio + SRT subtitles |
+| `POST /api/proxy/imgbb-upload` | Upload base64 image to imgbb (requires `IMGBB_API_KEY`) |
 
 ### Skill Directories
 
@@ -97,8 +117,9 @@ Key source files: `src/Root.tsx`, `src/SubtitleOverlay.tsx`, `src/ImageSlide.tsx
 - **No build system**: Frontend uses CDN-based Tailwind CSS; just edit and refresh
 - **macOS SSL**: `server.py` handles SSL certificate issues; install `certifi` if needed (`pip3 install certifi`)
 - **Port allocation**: Main server `:8765`, Remotion `:8766` — avoid conflicts
-- **Large files**: `app.js` (~5,500 lines) and `index.html` are monolithic; search carefully before editing
+- **Large files**: `app.js` (~5,500 lines) and `index.html` (~1,200 lines) are monolithic; search carefully before editing
 - **Health check**: Open `check-remotion.html` to verify Remotion server status
+- **ffmpeg required**: Video merge/concat endpoints require ffmpeg (`brew install ffmpeg` on macOS)
 
 ## API Keys (stored in `.env`)
 
@@ -109,7 +130,8 @@ Key source files: `src/Root.tsx`, `src/SubtitleOverlay.tsx`, `src/ImageSlide.tsx
 | `GEMINI_MODEL` | Model name, default `gemini-2.5-flash` |
 | `TRANSCRIPT_API_KEY` | transcriptapi.com (TranscriptAPI chat widget) |
 | `XAI_API_KEY` | Reserved for future X AI integration |
-| `IMGBB_API_KEY` | Reserved for image hosting |
+| `IMGBB_API_KEY` | imgbb image hosting (for Grok image→video workflow) |
+| `STABILITY_API_KEY` | Stability AI (Stable Diffusion 3.5 image generation) |
 
 ## API Quota
 
