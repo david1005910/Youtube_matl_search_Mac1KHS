@@ -30,7 +30,7 @@ cd remotion && npm run studio              # Opens Remotion Studio GUI
 | File | Purpose |
 |------|---------|
 | `index.html` | Main UI — Tailwind CSS (CDN), vanilla JS ES modules. Contains search, comment analysis, script generation, and 4 floating chat widgets |
-| `app.js` | Utility library (~5,500 lines) — JSON parsing, API fetching, modal management, formatting helpers |
+| `app.js` | Utility library (~5,800 lines) — JSON parsing, API fetching, modal management, formatting helpers |
 | `server.py` | Python HTTP server — `.env` CRUD, skill serving, API proxying (YouTube, Gemini, TranscriptAPI) |
 
 ### Additional Tools
@@ -76,6 +76,8 @@ cd remotion && npm run studio              # Opens Remotion Studio GUI
 | `POST /api/proxy/gemini` | Proxy Gemini text generation |
 | `POST /api/proxy/gemini-image` | Proxy to Imagen 4.0 image generation |
 | `POST /api/proxy/gemini-tts` | Gemini TTS (text-to-speech) |
+| `POST /api/proxy/stability-image` | Stability AI (SD3.5) image generation |
+| `POST /api/proxy/pollinations-image` | Pollinations.ai free image generation |
 
 **Grok Video (requires `XAI_API_KEY`):**
 | Route | Purpose |
@@ -93,7 +95,7 @@ cd remotion && npm run studio              # Opens Remotion Studio GUI
 ### Skill Directories
 
 - `claude-youtube-main/` — YouTube Creator AI (14 sub-skills: audit, seo, script, hook, thumbnail, strategy, calendar, shorts, analyze, repurpose, monetize, competitor, metadata, ideate)
-- `youtube-skills-main/` — TranscriptAPI-based skills (transcript, playlist, channel, search, subtitles, etc.)
+- `youtube-skills-main/` — TranscriptAPI-based skills with two parallel directories: `skills/` (primary) and `clawhub/` (alias). Skills include: transcript, playlist, channel, search, subtitles, captions, youtube-api, youtube-data, youtube-full, yt
 
 ### `remotion/` — Subtitle Renderer
 
@@ -117,7 +119,7 @@ Key source files: `src/Root.tsx`, `src/SubtitleOverlay.tsx`, `src/ImageSlide.tsx
 - **No build system**: Frontend uses CDN-based Tailwind CSS; just edit and refresh
 - **macOS SSL**: `server.py` handles SSL certificate issues; install `certifi` if needed (`pip3 install certifi`)
 - **Port allocation**: Main server `:8765`, Remotion `:8766` — avoid conflicts
-- **Large files**: `app.js` (~5,500 lines) and `index.html` (~1,200 lines) are monolithic; search carefully before editing
+- **Large files**: `app.js` (~5,800 lines) and `index.html` (~1,200 lines) are monolithic; search carefully before editing
 - **Health check**: Open `check-remotion.html` to verify Remotion server status
 - **ffmpeg required**: Video merge/concat endpoints require ffmpeg (`brew install ffmpeg` on macOS)
 
