@@ -1,0 +1,79 @@
+{
+  "_comment": "Wan2.1 Text-to-Video Workflow for ComfyUI (RTX 3060 12GB compatible)",
+  "_models": {
+    "unet": "wan2.1_t2v_1.3B_bf16.safetensors OR wan21-t2v-1.3b-q4_k_m.gguf",
+    "text_encoder": "umt5_xxl_fp8_e4m3fn_scaled.safetensors OR t5-v1_1-xxl-encoder-Q4_K_M.gguf",
+    "vae": "wan_2.1_vae.safetensors",
+    "clip_vision": "clip_vision_h.safetensors (optional, for I2V)"
+  },
+  "prompt": {
+    "1": {
+      "class_type": "DownloadAndLoadWanModel",
+      "inputs": {
+        "model": "Wan2.1-T2V-1.3B-bf16",
+        "precision": "bf16"
+      }
+    },
+    "2": {
+      "class_type": "DownloadAndLoadWanTextEncoder",
+      "inputs": {
+        "model": "umt5-xxl-enc-fp8_e4m3fn",
+        "precision": "fp8_e4m3fn"
+      }
+    },
+    "3": {
+      "class_type": "DownloadAndLoadWanVAE",
+      "inputs": {}
+    },
+    "4": {
+      "class_type": "WanTextEncode",
+      "inputs": {
+        "text_encoder": ["2", 0],
+        "prompt": "A beautiful sunset over the ocean, cinematic, golden hour, peaceful waves",
+        "force_offload": true
+      }
+    },
+    "5": {
+      "class_type": "WanEmptyLatent",
+      "inputs": {
+        "width": 832,
+        "height": 480,
+        "num_frames": 49,
+        "batch_size": 1
+      }
+    },
+    "6": {
+      "class_type": "WanSampler",
+      "inputs": {
+        "model": ["1", 0],
+        "positive": ["4", 0],
+        "negative": ["4", 1],
+        "latent": ["5", 0],
+        "seed": 12345,
+        "steps": 20,
+        "cfg": 5.0,
+        "shift": 5.0,
+        "scheduler": "DPM++ 2M SDE"
+      }
+    },
+    "7": {
+      "class_type": "WanDecode",
+      "inputs": {
+        "vae": ["3", 0],
+        "latent": ["6", 0]
+      }
+    },
+    "8": {
+      "class_type": "VHS_VideoCombine",
+      "inputs": {
+        "images": ["7", 0],
+        "frame_rate": 16,
+        "loop_count": 0,
+        "filename_prefix": "wan21_t2v",
+        "format": "video/h264-mp4",
+        "pingpong": false,
+        "save_output": true
+      }
+    }
+  }
+}

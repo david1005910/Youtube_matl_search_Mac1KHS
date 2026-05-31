@@ -1,0 +1,86 @@
+{
+  "_comment": "Wan2.1/2.2 GGUF Text-to-Video - Low VRAM (RTX 3060 friendly)",
+  "_required_nodes": ["ComfyUI-GGUF", "ComfyUI-VideoHelperSuite"],
+  "_models": {
+    "unet": "models/unet/ - wan21-t2v-1.3b-Q4_K_M.gguf (~1GB) or Wan2.2-T2V-5B-Q2_K.gguf (~2GB)",
+    "clip": "models/clip/ - t5-v1_1-xxl-encoder-Q4_K_M.gguf (~5GB)",
+    "vae": "models/vae/ - wan_2.1_vae.safetensors or Wan2_2_VAE_bf16.safetensors"
+  },
+  "prompt": {
+    "1": {
+      "class_type": "UnetLoaderGGUF",
+      "inputs": {
+        "unet_name": "wan21-t2v-1.3b-Q4_K_M.gguf"
+      }
+    },
+    "2": {
+      "class_type": "CLIPLoaderGGUF",
+      "inputs": {
+        "clip_name": "t5-v1_1-xxl-encoder-Q4_K_M.gguf",
+        "type": "sd3"
+      }
+    },
+    "3": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "wan_2.1_vae.safetensors"
+      }
+    },
+    "4": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": ["2", 0],
+        "text": "A beautiful sunset over the ocean, cinematic quality, smooth motion"
+      }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "clip": ["2", 0],
+        "text": "blurry, low quality, distorted, ugly, watermark, text"
+      }
+    },
+    "6": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": {
+        "width": 832,
+        "height": 480,
+        "batch_size": 49
+      }
+    },
+    "7": {
+      "class_type": "KSampler",
+      "inputs": {
+        "model": ["1", 0],
+        "positive": ["4", 0],
+        "negative": ["5", 0],
+        "latent_image": ["6", 0],
+        "seed": 12345,
+        "steps": 20,
+        "cfg": 5.0,
+        "sampler_name": "dpmpp_2m_sde",
+        "scheduler": "sgm_uniform",
+        "denoise": 1.0
+      }
+    },
+    "8": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "vae": ["3", 0],
+        "samples": ["7", 0]
+      }
+    },
+    "9": {
+      "class_type": "VHS_VideoCombine",
+      "inputs": {
+        "images": ["8", 0],
+        "frame_rate": 16,
+        "loop_count": 0,
+        "filename_prefix": "wan_gguf_video",
+        "format": "video/h264-mp4",
+        "pingpong": false,
+        "save_output": true
+      }
+    }
+  }
+}

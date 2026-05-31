@@ -39,6 +39,11 @@
             font-size: 14px;
             margin-left: 20px;
         }
+
+        .server-status.comfyui {
+            margin-left: 10px;
+            background: rgba(255, 165, 0, 0.2);
+        }
         
         .status-dot {
             width: 10px;
@@ -580,6 +585,131 @@
         .close-panel-btn:hover {
             opacity: 1;
         }
+
+        /* ComfyUI AI Video Section */
+        .ai-video-section {
+            margin-top: 25px;
+            padding: 20px;
+            background: linear-gradient(135deg, rgba(255,165,0,0.1), rgba(255,100,0,0.15));
+            border: 1px solid rgba(255,165,0,0.3);
+            border-radius: 15px;
+        }
+
+        .ai-video-section h3 {
+            color: #ffa500;
+            font-size: 16px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .ai-mode-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .ai-mode-tab {
+            flex: 1;
+            padding: 10px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 10px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.3s;
+            color: white;
+        }
+
+        .ai-mode-tab:hover {
+            background: rgba(255,255,255,0.15);
+        }
+
+        .ai-mode-tab.active {
+            background: linear-gradient(135deg, #ffa500, #ff6b00);
+            border-color: transparent;
+        }
+
+        .ai-mode-content {
+            display: none;
+        }
+
+        .ai-mode-content.active {
+            display: block;
+        }
+
+        .prompt-input {
+            width: 100%;
+            min-height: 80px;
+            padding: 12px;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,165,0,0.3);
+            border-radius: 10px;
+            color: white;
+            font-size: 14px;
+            resize: vertical;
+        }
+
+        .prompt-input::placeholder {
+            color: rgba(255,255,255,0.4);
+        }
+
+        .ai-settings-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .ai-settings-row select,
+        .ai-settings-row input {
+            padding: 10px;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,165,0,0.3);
+            border-radius: 8px;
+            color: white;
+            font-size: 13px;
+        }
+
+        .btn-ai {
+            background: linear-gradient(135deg, #ffa500, #ff6b00);
+            color: white;
+            margin-top: 15px;
+        }
+
+        .btn-ai:hover {
+            box-shadow: 0 10px 30px rgba(255,165,0,0.4);
+        }
+
+        .ai-status {
+            margin-top: 15px;
+            padding: 10px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            font-size: 13px;
+            display: none;
+        }
+
+        .ai-status.show {
+            display: block;
+        }
+
+        .ai-preview-image {
+            margin-top: 15px;
+            border-radius: 10px;
+            overflow: hidden;
+            display: none;
+        }
+
+        .ai-preview-image.show {
+            display: block;
+        }
+
+        .ai-preview-image img {
+            width: 100%;
+            border-radius: 10px;
+        }
     </style>
 </head>
 <body>
@@ -593,6 +723,10 @@
             <span class="server-status">
                 <span class="status-dot" id="statusDot"></span>
                 <span id="statusText">연결 확인 중...</span>
+            </span>
+            <span class="server-status comfyui">
+                <span class="status-dot" id="comfyStatusDot"></span>
+                <span id="comfyStatusText">ComfyUI 확인 중...</span>
             </span>
         </h1>
     </div>
@@ -742,6 +876,101 @@
                     🎬 영상 생성 완료 시 위 옵션들을 클릭할 수 있습니다
                 </p>
             </div>
+
+            <!-- ComfyUI AI 영상 생성 -->
+            <div class="ai-video-section">
+                <h3>🤖 AI 영상 생성 (ComfyUI)
+                    <label style="float: right; font-size: 12px; font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" id="autoAiGenerate" style="margin-right: 5px;"> 자동 생성
+                    </label>
+                </h3>
+
+                <div class="ai-mode-tabs">
+                    <div class="ai-mode-tab active" onclick="switchAiMode('text2video')">
+                        📝 텍스트→영상
+                    </div>
+                    <div class="ai-mode-tab" onclick="switchAiMode('img2video')">
+                        🖼️ 이미지→영상
+                    </div>
+                </div>
+
+                <!-- 텍스트→영상 모드 -->
+                <div class="ai-mode-content active" id="text2videoMode">
+                    <textarea class="prompt-input" id="t2vPrompt" placeholder="영상으로 생성할 장면을 설명하세요...&#10;예: A serene sunset over the ocean with gentle waves, cinematic, 4K"></textarea>
+
+                    <div class="ai-settings-row">
+                        <select id="t2vModel" title="모델 선택">
+                            <option value="wan21-1.3b">Wan2.1 1.3B (빠름/저VRAM)</option>
+                            <option value="wan21-14b" selected>Wan2.1 14B (고품질)</option>
+                        </select>
+                    </div>
+                    <div class="ai-settings-row">
+                        <select id="t2vFrames">
+                            <option value="25">25프레임 (~1초)</option>
+                            <option value="49" selected>49프레임 (~2초)</option>
+                            <option value="81">81프레임 (~3초)</option>
+                        </select>
+                        <select id="t2vSteps">
+                            <option value="15">빠름 (15 steps)</option>
+                            <option value="20" selected>표준 (20 steps)</option>
+                            <option value="30">고품질 (30 steps)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- 이미지→영상 모드 -->
+                <div class="ai-mode-content" id="img2videoMode">
+                    <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin-bottom: 10px;">
+                        왼쪽에서 선택한 이미지를 AI 영상으로 변환합니다
+                    </p>
+                    <textarea class="prompt-input" id="i2vPrompt" placeholder="이미지가 어떻게 움직일지 설명하세요...&#10;예: The camera slowly pans right, clouds move gently"></textarea>
+
+                    <div class="ai-settings-row">
+                        <select id="i2vFrames">
+                            <option value="25">25프레임 (~1초)</option>
+                            <option value="49" selected>49프레임 (~2초)</option>
+                            <option value="81">81프레임 (~3초)</option>
+                        </select>
+                        <select id="i2vStrength">
+                            <option value="0.5">낮음 (원본 유지)</option>
+                            <option value="0.7" selected>중간</option>
+                            <option value="0.9">높음 (더 역동적)</option>
+                        </select>
+                    </div>
+
+                    <div class="ai-preview-image" id="aiPreviewImage">
+                        <p style="font-size: 11px; margin-bottom: 5px;">선택된 이미지:</p>
+                        <img id="selectedImagePreview" src="" alt="Selected">
+                    </div>
+                </div>
+
+                <!-- ComfyUI 연결 상태 표시 -->
+                <div id="comfyConnectionStatus" style="margin-bottom: 15px; padding: 12px; background: rgba(220,53,69,0.2); border: 1px solid rgba(220,53,69,0.5); border-radius: 10px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <span style="font-size: 13px;">⚠️ ComfyUI 서버가 연결되지 않음</span>
+                        <button onclick="checkComfyUI()" style="padding: 6px 12px; background: #ffa500; border: none; border-radius: 6px; color: white; font-size: 12px; cursor: pointer;">
+                            🔄 연결 확인
+                        </button>
+                    </div>
+                    <p style="font-size: 11px; color: rgba(255,255,255,0.6); margin-top: 8px;">
+                        서버 URL: <code id="comfyUrlDisplay" style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">확인 중...</code>
+                    </p>
+                    <p style="font-size: 10px; color: rgba(255,255,255,0.5); margin-top: 4px;">
+                        💡 Tailscale 원격 연결: .env 파일에서 COMFYUI_URL 설정
+                    </p>
+                </div>
+
+                <button class="btn btn-ai" onclick="generateAiVideo()" id="aiGenerateBtn">
+                    🎬 AI 영상 생성
+                </button>
+
+                <div class="ai-status" id="aiStatus">
+                    <div id="aiStatusText">준비 중...</div>
+                    <div style="margin-top: 8px; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px;">
+                        <div id="aiProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #ffa500, #ff6b00); border-radius: 2px; transition: width 0.3s;"></div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -817,8 +1046,11 @@
         let images = [];
         let selectedIndex = -1;
         let serverOnline = false;
+        let comfyuiOnline = false;
         let lastRenderedVideoUrl = null;
         let currentStep = 1;
+        let currentAiMode = 'text2video';
+        let aiGenerating = false;
 
         // 워크플로우 스텝 업데이트
         function updateWorkflowStep(step) {
@@ -951,6 +1183,12 @@
             document.querySelectorAll('.timeline-item').forEach((item, i) => {
                 item.classList.toggle('active', i === index);
             });
+
+            // AI 이미지→영상 모드 미리보기 업데이트
+            if (currentAiMode === 'img2video' && images[index]) {
+                document.getElementById('selectedImagePreview').src = images[index].src;
+                document.getElementById('aiPreviewImage').classList.add('show');
+            }
         }
 
         // 이미지 제거
@@ -980,7 +1218,7 @@
                         showToast('⚠️ 앱에서 이미지를 찾을 수 없습니다');
                         return;
                     }
-                    
+
                     appImages.forEach((img, index) => {
                         images.push({
                             src: img.src,
@@ -988,11 +1226,33 @@
                             duration: 5
                         });
                     });
-                    
+
                     updateImageGrid();
                     updateTimeline();
                     updateWorkflowStep(2);
                     showToast(`✅ ${appImages.length}개 이미지를 가져왔습니다`);
+
+                    // 이미지가 추가되면 자동으로 AI 영상 생성 모드로 전환
+                    if (images.length > 0) {
+                        selectImage(0);
+                        switchAiMode('img2video');
+
+                        // ComfyUI 상태 확인 후 처리
+                        setTimeout(async () => {
+                            await checkComfyUI();
+
+                            if (comfyuiOnline) {
+                                if (document.getElementById('autoAiGenerate').checked) {
+                                    generateAiVideo();
+                                } else {
+                                    showAiPromptModal();
+                                }
+                            } else {
+                                showToast('💡 AI 영상 생성을 위해 ComfyUI를 시작해주세요');
+                                document.getElementById('comfyConnectionStatus').scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }
+                        }, 300);
+                    }
                 } else {
                     showToast('⚠️ 앱 창을 찾을 수 없습니다. 앱에서 이 페이지를 열어주세요.');
                 }
@@ -1289,9 +1549,468 @@
             showToast('💾 프로젝트 저장됨');
         }
 
+        // ComfyUI 서버 상태 확인
+        async function checkComfyUI() {
+            const statusPanel = document.getElementById('comfyConnectionStatus');
+            const generateBtn = document.getElementById('aiGenerateBtn');
+
+            try {
+                const response = await fetch('/api/comfyui/health');
+                const data = await response.json();
+                const comfyUrl = data.url || 'http://127.0.0.1:8188';
+
+                if (data.ok === true) {
+                    comfyuiOnline = true;
+                    document.getElementById('comfyStatusDot').classList.add('online');
+                    document.getElementById('comfyStatusText').textContent = 'ComfyUI 연결됨';
+
+                    // 연결 상태 패널 업데이트
+                    statusPanel.style.background = 'rgba(40,167,69,0.2)';
+                    statusPanel.style.borderColor = 'rgba(40,167,69,0.5)';
+                    statusPanel.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="color: #28a745;">✅ ComfyUI 연결됨</span>
+                            <span style="font-size: 11px; color: rgba(255,255,255,0.6);">- AI 영상 생성 준비 완료</span>
+                        </div>
+                        <p style="font-size: 11px; color: rgba(255,255,255,0.6); margin-top: 8px;">
+                            서버: <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">${comfyUrl}</code>
+                            <button onclick="checkComfyUI()" style="margin-left: 8px; padding: 2px 8px; background: rgba(255,255,255,0.2); border: none; border-radius: 4px; color: white; font-size: 10px; cursor: pointer;">🔄</button>
+                        </p>
+                    `;
+                    generateBtn.disabled = false;
+                    generateBtn.style.opacity = '1';
+                } else {
+                    throw new Error('ComfyUI not ready');
+                }
+            } catch (error) {
+                comfyuiOnline = false;
+                document.getElementById('comfyStatusDot').classList.remove('online');
+                document.getElementById('comfyStatusText').textContent = 'ComfyUI 오프라인';
+
+                // 연결 상태 패널 업데이트
+                statusPanel.style.background = 'rgba(220,53,69,0.2)';
+                statusPanel.style.borderColor = 'rgba(220,53,69,0.5)';
+                statusPanel.innerHTML = `
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <span style="font-size: 13px;">⚠️ ComfyUI 서버가 연결되지 않음</span>
+                        <button onclick="checkComfyUI()" style="padding: 6px 12px; background: #ffa500; border: none; border-radius: 6px; color: white; font-size: 12px; cursor: pointer;">
+                            🔄 연결 확인
+                        </button>
+                    </div>
+                    <p style="font-size: 11px; color: rgba(255,255,255,0.6); margin-top: 8px;">
+                        터미널: <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">cd /Users/sharkey/Desktop/ComfyUI && python main.py</code>
+                    </p>
+                `;
+                generateBtn.disabled = true;
+                generateBtn.style.opacity = '0.5';
+            }
+        }
+
+        // ComfyUI 시작 도우미
+        function startComfyUI() {
+            // 클립보드에 명령어 복사
+            const command = 'cd /Users/sharkey/Desktop/ComfyUI && python main.py';
+            navigator.clipboard.writeText(command).then(() => {
+                showToast('📋 ComfyUI 시작 명령어가 클립보드에 복사되었습니다!');
+            }).catch(() => {
+                showToast('터미널에서 실행: ' + command);
+            });
+
+            // 서버 연결 재시도 시작
+            showToast('🔄 ComfyUI 연결 대기 중... (터미널에서 명령어 실행 후 기다려주세요)');
+
+            // 연결 확인 주기를 짧게 설정
+            let attempts = 0;
+            const checkInterval = setInterval(async () => {
+                attempts++;
+                await checkComfyUI();
+                if (comfyuiOnline) {
+                    clearInterval(checkInterval);
+                    showToast('✅ ComfyUI 연결 성공!');
+                } else if (attempts > 60) { // 60초 후 중단
+                    clearInterval(checkInterval);
+                }
+            }, 1000);
+        }
+
+        // AI 모드 전환
+        function switchAiMode(mode) {
+            currentAiMode = mode;
+            document.querySelectorAll('.ai-mode-tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.ai-mode-content').forEach(content => content.classList.remove('active'));
+
+            if (mode === 'text2video') {
+                document.querySelector('.ai-mode-tab:first-child').classList.add('active');
+                document.getElementById('text2videoMode').classList.add('active');
+            } else {
+                document.querySelector('.ai-mode-tab:last-child').classList.add('active');
+                document.getElementById('img2videoMode').classList.add('active');
+
+                // 선택된 이미지 미리보기 업데이트
+                if (selectedIndex >= 0 && images[selectedIndex]) {
+                    document.getElementById('selectedImagePreview').src = images[selectedIndex].src;
+                    document.getElementById('aiPreviewImage').classList.add('show');
+                }
+            }
+        }
+
+        // AI 영상 생성 (ComfyUI Wan2.2)
+        async function generateAiVideo() {
+            if (!comfyuiOnline) {
+                showToast('⚠️ ComfyUI 서버를 먼저 시작하세요');
+                // 연결 상태 패널로 스크롤
+                document.getElementById('comfyConnectionStatus').scrollIntoView({ behavior: 'smooth', block: 'center' });
+                startComfyUI();
+                return;
+            }
+
+            if (aiGenerating) {
+                showToast('⚠️ 이미 생성 중입니다');
+                return;
+            }
+
+            aiGenerating = true;
+            const statusEl = document.getElementById('aiStatus');
+            const statusText = document.getElementById('aiStatusText');
+            const progressBar = document.getElementById('aiProgressBar');
+
+            statusEl.classList.add('show');
+            statusText.textContent = '🔄 워크플로우 준비 중...';
+            progressBar.style.width = '10%';
+
+            try {
+                let workflow;
+
+                if (currentAiMode === 'text2video') {
+                    const prompt = document.getElementById('t2vPrompt').value;
+                    const frames = parseInt(document.getElementById('t2vFrames').value);
+                    const steps = parseInt(document.getElementById('t2vSteps').value);
+
+                    if (!prompt.trim()) {
+                        showToast('⚠️ 프롬프트를 입력하세요');
+                        aiGenerating = false;
+                        statusEl.classList.remove('show');
+                        return;
+                    }
+
+                    // Wan2.2 Text-to-Video 워크플로우
+                    workflow = createWan22T2VWorkflow(prompt, frames, steps);
+
+                } else {
+                    // Image-to-Video 모드
+                    if (selectedIndex < 0 || !images[selectedIndex]) {
+                        showToast('⚠️ 먼저 이미지를 선택하세요');
+                        aiGenerating = false;
+                        statusEl.classList.remove('show');
+                        return;
+                    }
+
+                    const prompt = document.getElementById('i2vPrompt').value || 'smooth camera motion';
+                    const frames = parseInt(document.getElementById('i2vFrames').value);
+                    const strength = parseFloat(document.getElementById('i2vStrength').value);
+
+                    statusText.textContent = '🔄 이미지 업로드 중...';
+                    progressBar.style.width = '20%';
+
+                    // 이미지를 ComfyUI에 업로드
+                    const imageFile = await uploadImageToComfyUI(images[selectedIndex].src);
+
+                    // Wan2.2 Image-to-Video 워크플로우
+                    workflow = createWan22I2VWorkflow(imageFile, prompt, frames, strength);
+                }
+
+                statusText.textContent = '🎬 AI 영상 생성 중... (시간이 걸릴 수 있습니다)';
+                progressBar.style.width = '30%';
+
+                // ComfyUI에 워크플로우 전송
+                const response = await fetch('/api/proxy/comfyui/prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: workflow })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'ComfyUI 요청 실패');
+                }
+
+                const result = await response.json();
+                const promptId = result.prompt_id;
+
+                statusText.textContent = '⏳ 렌더링 중... (ID: ' + promptId.substring(0,8) + ')';
+
+                // 진행 상황 폴링
+                await pollComfyUIProgress(promptId, statusText, progressBar);
+
+            } catch (error) {
+                console.error('AI 영상 생성 오류:', error);
+                showToast('❌ 오류: ' + error.message);
+                statusText.textContent = '❌ 오류 발생: ' + error.message;
+                progressBar.style.width = '0%';
+            } finally {
+                aiGenerating = false;
+            }
+        }
+
+        // ComfyUI에 이미지 업로드
+        async function uploadImageToComfyUI(base64Src) {
+            const response = await fetch('/api/proxy/comfyui/upload/image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: base64Src, filename: 'input_image.png' })
+            });
+
+            if (!response.ok) {
+                throw new Error('이미지 업로드 실패');
+            }
+
+            const result = await response.json();
+            return result.name;
+        }
+
+        // Wan2.1 Text-to-Video 워크플로우 생성 (ComfyUI-WAN 노드 사용)
+        function createWan22T2VWorkflow(prompt, frames, steps) {
+            const modelType = document.getElementById('t2vModel')?.value || 'wan21-14b';
+            const modelName = modelType === 'wan21-1.3b' ? 'Wan2.1-T2V-1.3B' : 'Wan2.1-T2V-14B';
+
+            return {
+                "1": {
+                    "class_type": "DownloadAndLoadWanModel",
+                    "inputs": {
+                        "model": modelName,
+                        "base_precision": "bf16",
+                        "quantization": "disabled"
+                    }
+                },
+                "2": {
+                    "class_type": "DownloadAndLoadWanTextEncoder",
+                    "inputs": {
+                        "model": "umt5-xxl-enc-bf16",
+                        "precision": "bf16"
+                    }
+                },
+                "3": {
+                    "class_type": "DownloadAndLoadWanVAE",
+                    "inputs": {}
+                },
+                "4": {
+                    "class_type": "WanTextEncode",
+                    "inputs": {
+                        "text_encoder": ["2", 0],
+                        "prompt": prompt,
+                        "force_offload": true
+                    }
+                },
+                "5": {
+                    "class_type": "WanEmptyLatent",
+                    "inputs": {
+                        "width": 832,
+                        "height": 480,
+                        "num_frames": frames,
+                        "batch_size": 1
+                    }
+                },
+                "6": {
+                    "class_type": "WanSampler",
+                    "inputs": {
+                        "model": ["1", 0],
+                        "positive": ["4", 0],
+                        "negative": ["4", 1],
+                        "latent": ["5", 0],
+                        "seed": Math.floor(Math.random() * 1000000),
+                        "steps": steps,
+                        "cfg": 5.0,
+                        "shift": 5.0,
+                        "scheduler": "DPM++ 2M SDE"
+                    }
+                },
+                "7": {
+                    "class_type": "WanDecode",
+                    "inputs": {
+                        "vae": ["3", 0],
+                        "latent": ["6", 0]
+                    }
+                },
+                "8": {
+                    "class_type": "VHS_VideoCombine",
+                    "inputs": {
+                        "images": ["7", 0],
+                        "frame_rate": 16,
+                        "loop_count": 0,
+                        "filename_prefix": "wan21_t2v",
+                        "format": "video/h264-mp4",
+                        "pingpong": false,
+                        "save_output": true
+                    }
+                }
+            };
+        }
+
+        // Wan2.1 Image-to-Video 워크플로우 생성 (ComfyUI-WAN 노드 사용)
+        function createWan22I2VWorkflow(imageFile, prompt, frames, strength) {
+            return {
+                "1": {
+                    "class_type": "DownloadAndLoadWanModel",
+                    "inputs": {
+                        "model": "Wan2.1-I2V-14B-480P",
+                        "base_precision": "bf16",
+                        "quantization": "disabled"
+                    }
+                },
+                "2": {
+                    "class_type": "DownloadAndLoadWanTextEncoder",
+                    "inputs": {
+                        "model": "umt5-xxl-enc-bf16",
+                        "precision": "bf16"
+                    }
+                },
+                "3": {
+                    "class_type": "DownloadAndLoadWanVAE",
+                    "inputs": {}
+                },
+                "4": {
+                    "class_type": "LoadImage",
+                    "inputs": {
+                        "image": imageFile
+                    }
+                },
+                "5": {
+                    "class_type": "DownloadAndLoadCLIPVisionModel",
+                    "inputs": {
+                        "model": "google--siglip-so400m-patch14-384"
+                    }
+                },
+                "6": {
+                    "class_type": "WanClipVisionEncode",
+                    "inputs": {
+                        "clip_vision": ["5", 0],
+                        "image": ["4", 0]
+                    }
+                },
+                "7": {
+                    "class_type": "WanTextEncode",
+                    "inputs": {
+                        "text_encoder": ["2", 0],
+                        "prompt": prompt,
+                        "force_offload": true
+                    }
+                },
+                "8": {
+                    "class_type": "WanImageToVideo",
+                    "inputs": {
+                        "model": ["1", 0],
+                        "positive": ["7", 0],
+                        "negative": ["7", 1],
+                        "image_embeds": ["6", 0],
+                        "image": ["4", 0],
+                        "width": 832,
+                        "height": 480,
+                        "num_frames": frames,
+                        "seed": Math.floor(Math.random() * 1000000),
+                        "steps": 20,
+                        "cfg": 5.0,
+                        "shift": 5.0,
+                        "scheduler": "DPM++ 2M SDE"
+                    }
+                },
+                "9": {
+                    "class_type": "WanDecode",
+                    "inputs": {
+                        "vae": ["3", 0],
+                        "latent": ["8", 0]
+                    }
+                },
+                "10": {
+                    "class_type": "VHS_VideoCombine",
+                    "inputs": {
+                        "images": ["9", 0],
+                        "frame_rate": 16,
+                        "loop_count": 0,
+                        "filename_prefix": "wan21_i2v",
+                        "format": "video/h264-mp4",
+                        "pingpong": false,
+                        "save_output": true
+                    }
+                }
+            };
+        }
+
+        // ComfyUI 진행 상황 폴링
+        async function pollComfyUIProgress(promptId, statusText, progressBar) {
+            let attempts = 0;
+            const maxAttempts = 300; // 최대 5분 대기
+
+            while (attempts < maxAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                attempts++;
+
+                try {
+                    const response = await fetch(`/api/proxy/comfyui/history?prompt_id=${promptId}`);
+                    const history = await response.json();
+
+                    if (history[promptId]) {
+                        const outputs = history[promptId].outputs;
+
+                        // 완료된 출력 찾기
+                        for (const nodeId in outputs) {
+                            if (outputs[nodeId].videos) {
+                                const video = outputs[nodeId].videos[0];
+                                statusText.textContent = '✅ 완료! 영상 다운로드 중...';
+                                progressBar.style.width = '100%';
+
+                                // 영상 다운로드
+                                await downloadComfyUIVideo(video.filename, video.subfolder);
+                                return;
+                            }
+                        }
+                    }
+
+                    // 진행 상황 업데이트
+                    const progress = Math.min(30 + (attempts / maxAttempts) * 60, 90);
+                    progressBar.style.width = progress + '%';
+                    statusText.textContent = `⏳ 렌더링 중... (${attempts}초 경과)`;
+
+                } catch (error) {
+                    console.warn('폴링 오류:', error);
+                }
+            }
+
+            throw new Error('시간 초과 - ComfyUI 렌더링이 완료되지 않았습니다');
+        }
+
+        // ComfyUI 영상 다운로드
+        async function downloadComfyUIVideo(filename, subfolder) {
+            const url = `/api/proxy/comfyui/view?filename=${encodeURIComponent(filename)}&subfolder=${encodeURIComponent(subfolder || '')}&type=output`;
+
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('영상 다운로드 실패');
+
+            const blob = await response.blob();
+            const videoUrl = URL.createObjectURL(blob);
+            lastRenderedVideoUrl = videoUrl;
+
+            // 다운로드
+            const a = document.createElement('a');
+            a.href = videoUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            // 프리뷰에 표시
+            const player = document.getElementById('previewPlayer');
+            player.innerHTML = `<video src="${videoUrl}" controls autoplay style="width: 100%; height: 100%;"></video>`;
+
+            showToast('✅ AI 영상이 생성되었습니다!');
+            updateWorkflowStep(4);
+            setTimeout(() => showNextSteps(), 1000);
+        }
+
         // 초기화
         checkServer();
+        checkComfyUI();
         setInterval(checkServer, 5000);
+        setInterval(checkComfyUI, 5000);
 
         // 부모 창과 통신
         if (window.opener) {
@@ -1312,8 +2031,66 @@
                 updateTimeline();
                 updateWorkflowStep(2);
                 showToast(`✅ ${e.data.images.length}개 이미지 추가됨`);
+
+                // 이미지가 추가되면 자동으로 AI 영상 생성 모드로 전환
+                if (images.length > 0) {
+                    selectImage(0);
+                    switchAiMode('img2video');
+
+                    // ComfyUI 상태 확인 후 처리
+                    setTimeout(async () => {
+                        await checkComfyUI();
+
+                        if (comfyuiOnline) {
+                            // 자동 생성 체크박스가 켜져 있으면 바로 생성
+                            if (document.getElementById('autoAiGenerate').checked) {
+                                generateAiVideo();
+                            } else {
+                                showAiPromptModal();
+                            }
+                        } else {
+                            // ComfyUI가 연결되지 않은 경우 안내
+                            showToast('💡 AI 영상 생성을 위해 ComfyUI를 시작해주세요');
+                            document.getElementById('comfyConnectionStatus').scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    }, 300);
+                }
             }
         });
+
+        // AI 영상 생성 확인 모달
+        function showAiPromptModal() {
+            const modal = document.createElement('div');
+            modal.id = 'aiPromptModal';
+            modal.className = 'modal show';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width: 450px;">
+                    <h3 style="margin-bottom: 15px; color: #ffa500;">🤖 AI 영상 생성</h3>
+                    <p style="margin-bottom: 15px; font-size: 14px;">이미지를 AI 영상으로 변환하시겠습니까?</p>
+                    <div style="margin-bottom: 15px;">
+                        <label style="font-size: 13px; color: rgba(255,255,255,0.8);">모션 프롬프트:</label>
+                        <textarea id="quickAiPrompt" class="prompt-input" style="margin-top: 8px; min-height: 60px;" placeholder="예: Gentle camera zoom, soft motion"></textarea>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-secondary" onclick="closeAiPromptModal()">취소</button>
+                        <button class="btn btn-ai" onclick="startQuickAiGenerate()">🎬 생성 시작</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        function closeAiPromptModal() {
+            const modal = document.getElementById('aiPromptModal');
+            if (modal) modal.remove();
+        }
+
+        function startQuickAiGenerate() {
+            const prompt = document.getElementById('quickAiPrompt').value;
+            document.getElementById('i2vPrompt').value = prompt || 'Gentle camera motion, cinematic';
+            closeAiPromptModal();
+            generateAiVideo();
+        }
     </script>
 </body>
 </html>

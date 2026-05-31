@@ -116,21 +116,30 @@ Key source files: `src/Root.tsx`, `src/SubtitleOverlay.tsx`, `src/ImageSlide.tsx
 
 ### ComfyUI AI Video Generation
 
-ComfyUI integration for AI-powered video generation using Wan2.2 GGUF models. Requires ComfyUI running on port 8188.
+ComfyUI integration for AI-powered video generation using Wan2.1 models. Supports local and remote (Tailscale) connections.
 
-**Required models (in ComfyUI/models/):**
-- `unet/Wan2.2-TI2V-5B-Q2_K.gguf` (~1.77GB)
-- `clip/t5-v1_1-xxl-encoder-Q3_K_S.gguf` (~2.0GB)
-- `vae/Wan2_2_VAE_bf16.safetensors` (~1.34GB)
+**Workflow JSON files (`workflows/` directory):**
+| File | Purpose |
+|------|---------|
+| `wan21_t2v.json` | Text-to-Video (ComfyUI-WAN nodes) |
+| `wan21_i2v.json` | Image-to-Video (ComfyUI-WAN nodes) |
+| `wan_gguf_t2v.json` | Text-to-Video (GGUF quantized, low VRAM) |
 
-**Custom Nodes:** `ComfyUI-GGUF`, `ComfyUI-VideoHelperSuite`
+**Recommended models for RTX 3060 (12GB):**
+| Model | VRAM | Quality |
+|-------|------|---------|
+| Wan2.1-T2V-1.3B | ~6GB | Good (fast) |
+| Wan2.1-T2V-14B | ~10GB | High |
+| Wan2.1-I2V-14B-480P | ~10GB | High |
+
+**Custom Nodes:** `ComfyUI-WAN`, `ComfyUI-VideoHelperSuite`, `ComfyUI-GGUF` (optional)
 
 **API Endpoints (via server.py proxy):**
 | Route | Purpose |
 |-------|---------|
 | `POST /api/proxy/comfyui/prompt` | Queue workflow to ComfyUI |
 | `POST /api/proxy/comfyui/upload/image` | Upload image to ComfyUI |
-| `GET /api/comfyui/health` | Check ComfyUI connection |
+| `GET /api/comfyui/health` | Check ComfyUI connection (returns URL) |
 | `GET /api/proxy/comfyui/history` | Get workflow history |
 | `GET /api/proxy/comfyui/view` | Get generated output files |
 
