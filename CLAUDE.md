@@ -114,6 +114,26 @@ Key source files: `src/Root.tsx`, `src/SubtitleOverlay.tsx`, `src/ImageSlide.tsx
 - `flow-bridge-extension/` — Bridges to Google Flow (labs.google) for automated AI video generation
 - `grok-bridge-extension/` — Bridges to Grok.com for Grok AI integration
 
+### ComfyUI AI Video Generation
+
+ComfyUI integration for AI-powered video generation using Wan2.2 GGUF models. Requires ComfyUI running on port 8188.
+
+**Required models (in ComfyUI/models/):**
+- `unet/Wan2.2-TI2V-5B-Q2_K.gguf` (~1.77GB)
+- `clip/t5-v1_1-xxl-encoder-Q3_K_S.gguf` (~2.0GB)
+- `vae/Wan2_2_VAE_bf16.safetensors` (~1.34GB)
+
+**Custom Nodes:** `ComfyUI-GGUF`, `ComfyUI-VideoHelperSuite`
+
+**API Endpoints (via server.py proxy):**
+| Route | Purpose |
+|-------|---------|
+| `POST /api/proxy/comfyui/prompt` | Queue workflow to ComfyUI |
+| `POST /api/proxy/comfyui/upload/image` | Upload image to ComfyUI |
+| `GET /api/comfyui/health` | Check ComfyUI connection |
+| `GET /api/proxy/comfyui/history` | Get workflow history |
+| `GET /api/proxy/comfyui/view` | Get generated output files |
+
 ## Development Notes
 
 - **No build system**: Frontend uses CDN-based Tailwind CSS; just edit and refresh
@@ -148,3 +168,10 @@ YouTube Data API v3: 10,000 units/day free. One full search costs ~200–300 uni
 | ≥200% | Verified material |
 | ≥500% | Strong viral |
 | ≥1000% | Algorithm explosion |
+
+## Testing
+
+No automated test suite. Manual testing via browser:
+- `check-remotion.html` — Remotion server health check
+- `test-korean-validation.html` — Korean text validation tests
+- `test-video.html` — Video component testing
