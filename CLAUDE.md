@@ -154,6 +154,7 @@ ComfyUI integration for AI-powered video generation using Wan2.2 GGUF models. Re
 | `XAI_API_KEY` | Reserved for future X AI integration |
 | `IMGBB_API_KEY` | imgbb image hosting (for Grok image→video workflow) |
 | `STABILITY_API_KEY` | Stability AI (Stable Diffusion 3.5 image generation) |
+| `COMFYUI_URL` | ComfyUI server URL (default `http://127.0.0.1:8188`, Tailscale 원격: `http://100.x.x.x:8188`) |
 
 ## API Quota
 

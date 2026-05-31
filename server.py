@@ -30,6 +30,7 @@ def load_env():
         'XAI_API_KEY': '',
         'IMGBB_API_KEY': '',
         'STABILITY_API_KEY': '',
+        'COMFYUI_URL': 'http://127.0.0.1:8188',
     }
     if ENV_FILE.exists():
         for line in ENV_FILE.read_text(encoding='utf-8').splitlines():
@@ -48,8 +49,14 @@ def save_env(data):
         f"XAI_API_KEY={data.get('XAI_API_KEY', '')}\n"
         f"IMGBB_API_KEY={data.get('IMGBB_API_KEY', '')}\n"
         f"STABILITY_API_KEY={data.get('STABILITY_API_KEY', '')}\n"
+        f"COMFYUI_URL={data.get('COMFYUI_URL', 'http://127.0.0.1:8188')}\n"
     )
     ENV_FILE.write_text(content, encoding='utf-8')
+
+def get_comfyui_url():
+    """ComfyUI 서버 URL 반환 (Tailscale 등 원격 연결 지원)"""
+    env = load_env()
+    return env.get('COMFYUI_URL', 'http://127.0.0.1:8188').rstrip('/')
 
 # ── claude-youtube-main 스킬 (YouTube Creator AI) ──
 def get_skill_content(skill_name):
@@ -187,6 +194,49 @@ class Handler(SimpleHTTPRequestHandler):
                 self.wfile.write(err_body)
             except Exception as e:
                 _send_json(self, 500, {'error': str(e)})
+
+        # ── ComfyUI 프록시 (GET) ────────────────────────────────
+        elif self.path == '/api/comfyui/health':
+            comfyui_base = get_comfyui_url()
+            try:
+                req = urllib.request.Request(f'{comfyui_base}/')
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    _send_json(self, 200, {'ok': True, 'status': 'ComfyUI 연결됨', 'url': comfyui_base})
+            except Exception:
+                _send_json(self, 200, {'ok': False, 'status': 'ComfyUI 오프라인', 'url': comfyui_base})
+
+        elif self.path.startswith('/api/proxy/comfyui/history'):
+            # ComfyUI 히스토리 조회
+            qs = self.path[len('/api/proxy/comfyui/history'):]
+            comfyui_url = f'{get_comfyui_url()}/history{qs}'
+            try:
+                req = urllib.request.Request(comfyui_url)
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    resp_body = resp.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except Exception as e:
+                _send_json(self, 500, {'error': f'ComfyUI history 조회 실패: {str(e)}'})
+
+        elif self.path.startswith('/api/proxy/comfyui/view'):
+            # ComfyUI 이미지/영상 조회
+            qs = self.path[len('/api/proxy/comfyui/view'):]
+            comfyui_url = f'{get_comfyui_url()}/view{qs}'
+            try:
+                req = urllib.request.Request(comfyui_url)
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    resp_body = resp.read()
+                    content_type = resp.headers.get('Content-Type', 'application/octet-stream')
+                self.send_response(200)
+                self.send_header('Content-Type', content_type)
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except Exception as e:
+                _send_json(self, 500, {'error': f'ComfyUI view 실패: {str(e)}'})
 
         else:
             super().do_GET()
@@ -658,6 +708,55 @@ class Handler(SimpleHTTPRequestHandler):
                 _send_json(self, 500, {'error': str(e)})
             finally:
                 shutil.rmtree(tmpdir, ignore_errors=True)
+
+        # ── ComfyUI 프록시 (영상 생성) ────────────────────────────
+        elif self.path == '/api/proxy/comfyui/prompt':
+            data = json.loads(body_raw)
+            comfyui_url = f'{get_comfyui_url()}/prompt'
+            req_body = json.dumps(data).encode('utf-8')
+            req = urllib.request.Request(
+                comfyui_url,
+                data=req_body,
+                headers={'Content-Type': 'application/json'}
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=30, context=_ssl_ctx) as resp:
+                    resp_body = resp.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except urllib.error.HTTPError as e:
+                err_body = e.read() or b'{}'
+                self.send_response(e.code)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(err_body))
+                self.end_headers()
+                self.wfile.write(err_body)
+            except Exception as e:
+                _send_json(self, 500, {'error': f'ComfyUI 연결 실패: {str(e)}'})
+
+        elif self.path == '/api/proxy/comfyui/upload/image':
+            # ComfyUI 이미지 업로드 프록시
+            comfyui_url = f'{get_comfyui_url()}/upload/image'
+            req = urllib.request.Request(
+                comfyui_url,
+                data=body_raw,
+                headers={
+                    'Content-Type': self.headers.get('Content-Type', 'application/octet-stream')
+                }
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=60, context=_ssl_ctx) as resp:
+                    resp_body = resp.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except Exception as e:
+                _send_json(self, 500, {'error': f'ComfyUI 이미지 업로드 실패: {str(e)}'})
 
         else:
             self.send_response(404)
