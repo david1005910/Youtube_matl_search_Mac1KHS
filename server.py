@@ -31,6 +31,7 @@ def load_env():
         'IMGBB_API_KEY': '',
         'STABILITY_API_KEY': '',
         'COMFYUI_URL': 'http://127.0.0.1:8188',
+        'WANGP_URL': 'http://127.0.0.1:7860',
     }
     if ENV_FILE.exists():
         for line in ENV_FILE.read_text(encoding='utf-8').splitlines():
@@ -50,8 +51,14 @@ def save_env(data):
         f"IMGBB_API_KEY={data.get('IMGBB_API_KEY', '')}\n"
         f"STABILITY_API_KEY={data.get('STABILITY_API_KEY', '')}\n"
         f"COMFYUI_URL={data.get('COMFYUI_URL', 'http://127.0.0.1:8188')}\n"
+        f"WANGP_URL={data.get('WANGP_URL', 'http://127.0.0.1:7860')}\n"
     )
     ENV_FILE.write_text(content, encoding='utf-8')
+
+def get_wangp_url():
+    """WanGP 서버 URL 반환 (Tailscale 원격 연결 지원)"""
+    env = load_env()
+    return env.get('WANGP_URL', 'http://127.0.0.1:7860').rstrip('/')
 
 def get_comfyui_url():
     """ComfyUI 서버 URL 반환 (Tailscale 등 원격 연결 지원)"""
@@ -204,6 +211,34 @@ class Handler(SimpleHTTPRequestHandler):
                     _send_json(self, 200, {'ok': True, 'status': 'ComfyUI 연결됨', 'url': comfyui_base})
             except Exception:
                 _send_json(self, 200, {'ok': False, 'status': 'ComfyUI 오프라인', 'url': comfyui_base})
+
+        # ── WanGP 프록시 (GET) ────────────────────────────────
+        elif self.path == '/api/wangp/health':
+            wangp_base = get_wangp_url()
+            try:
+                req = urllib.request.Request(f'{wangp_base}/')
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    _send_json(self, 200, {'ok': True, 'status': 'WanGP 연결됨', 'url': wangp_base})
+            except Exception:
+                _send_json(self, 200, {'ok': False, 'status': 'WanGP 오프라인', 'url': wangp_base})
+
+        elif self.path.startswith('/api/proxy/wangp/'):
+            # WanGP 프록시 (모든 GET 요청 전달)
+            wangp_base = get_wangp_url()
+            sub_path = self.path[len('/api/proxy/wangp'):]
+            wangp_url = f'{wangp_base}{sub_path}'
+            try:
+                req = urllib.request.Request(wangp_url)
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    resp_body = resp.read()
+                    content_type = resp.headers.get('Content-Type', 'application/json')
+                self.send_response(200)
+                self.send_header('Content-Type', content_type)
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except Exception as e:
+                _send_json(self, 500, {'error': f'WanGP 요청 실패: {str(e)}'})
 
         elif self.path.startswith('/api/proxy/comfyui/history'):
             # ComfyUI 히스토리 조회
@@ -708,6 +743,37 @@ class Handler(SimpleHTTPRequestHandler):
                 _send_json(self, 500, {'error': str(e)})
             finally:
                 shutil.rmtree(tmpdir, ignore_errors=True)
+
+        # ── WanGP 프록시 (POST) ────────────────────────────────
+        elif self.path.startswith('/api/proxy/wangp/'):
+            wangp_base = get_wangp_url()
+            sub_path = self.path[len('/api/proxy/wangp'):]
+            wangp_url = f'{wangp_base}{sub_path}'
+            content_type = self.headers.get('Content-Type', 'application/json')
+            req = urllib.request.Request(
+                wangp_url,
+                data=body_raw,
+                headers={'Content-Type': content_type},
+                method='POST'
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=300) as resp:
+                    resp_body = resp.read()
+                    resp_content_type = resp.headers.get('Content-Type', 'application/json')
+                self.send_response(200)
+                self.send_header('Content-Type', resp_content_type)
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except urllib.error.HTTPError as e:
+                err_body = e.read() or b'{}'
+                self.send_response(e.code)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(err_body))
+                self.end_headers()
+                self.wfile.write(err_body)
+            except Exception as e:
+                _send_json(self, 500, {'error': f'WanGP 요청 실패: {str(e)}'})
 
         # ── ComfyUI 프록시 (영상 생성) ────────────────────────────
         elif self.path == '/api/proxy/comfyui/prompt':

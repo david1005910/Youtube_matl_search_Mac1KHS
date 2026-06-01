@@ -877,13 +877,21 @@
                 </p>
             </div>
 
-            <!-- ComfyUI AI 영상 생성 -->
+            <!-- AI 영상 생성 -->
             <div class="ai-video-section">
-                <h3>🤖 AI 영상 생성 (ComfyUI)
+                <h3>🤖 AI 영상 생성
                     <label style="float: right; font-size: 12px; font-weight: normal; cursor: pointer;">
                         <input type="checkbox" id="autoAiGenerate" style="margin-right: 5px;"> 자동 생성
                     </label>
                 </h3>
+
+                <!-- 백엔드 선택 -->
+                <div class="ai-settings-row" style="margin-bottom: 10px;">
+                    <select id="aiBackend" onchange="switchAiBackend(this.value)" style="flex: 1;">
+                        <option value="wangp" selected>🚀 WanGP (Desktop GPU)</option>
+                        <option value="comfyui">⚙️ ComfyUI (로컬)</option>
+                    </select>
+                </div>
 
                 <div class="ai-mode-tabs">
                     <div class="ai-mode-tab active" onclick="switchAiMode('text2video')">
@@ -944,20 +952,24 @@
                     </div>
                 </div>
 
-                <!-- ComfyUI 연결 상태 표시 -->
-                <div id="comfyConnectionStatus" style="margin-bottom: 15px; padding: 12px; background: rgba(220,53,69,0.2); border: 1px solid rgba(220,53,69,0.5); border-radius: 10px;">
+                <!-- AI 백엔드 연결 상태 표시 -->
+                <div id="aiConnectionStatus" style="margin-bottom: 15px; padding: 12px; background: rgba(220,53,69,0.2); border: 1px solid rgba(220,53,69,0.5); border-radius: 10px;">
                     <div style="display: flex; align-items: center; justify-content: space-between;">
-                        <span style="font-size: 13px;">⚠️ ComfyUI 서버가 연결되지 않음</span>
-                        <button onclick="checkComfyUI()" style="padding: 6px 12px; background: #ffa500; border: none; border-radius: 6px; color: white; font-size: 12px; cursor: pointer;">
+                        <span id="aiConnectionText" style="font-size: 13px;">⚠️ 연결 확인 중...</span>
+                        <button onclick="checkCurrentBackend()" style="padding: 6px 12px; background: #ffa500; border: none; border-radius: 6px; color: white; font-size: 12px; cursor: pointer;">
                             🔄 연결 확인
                         </button>
                     </div>
                     <p style="font-size: 11px; color: rgba(255,255,255,0.6); margin-top: 8px;">
-                        서버 URL: <code id="comfyUrlDisplay" style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">확인 중...</code>
+                        서버: <code id="aiUrlDisplay" style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">확인 중...</code>
                     </p>
-                    <p style="font-size: 10px; color: rgba(255,255,255,0.5); margin-top: 4px;">
-                        💡 Tailscale 원격 연결: .env 파일에서 COMFYUI_URL 설정
-                    </p>
+                </div>
+
+                <!-- WanGP 직접 열기 버튼 -->
+                <div id="wangpDirectAccess" style="margin-bottom: 15px;">
+                    <button onclick="openWanGP()" style="width: 100%; padding: 10px; background: linear-gradient(135deg, #667eea, #764ba2); border: none; border-radius: 8px; color: white; font-size: 13px; cursor: pointer;">
+                        🖥️ WanGP 직접 열기 (Desktop GPU)
+                    </button>
                 </div>
 
                 <button class="btn btn-ai" onclick="generateAiVideo()" id="aiGenerateBtn">
@@ -1047,6 +1059,9 @@
         let selectedIndex = -1;
         let serverOnline = false;
         let comfyuiOnline = false;
+        let wangpOnline = false;
+        let currentAiBackend = 'wangp'; // 'wangp' or 'comfyui'
+        let wangpUrl = '';
         let lastRenderedVideoUrl = null;
         let currentStep = 1;
         let currentAiMode = 'text2video';
@@ -1237,19 +1252,21 @@
                         selectImage(0);
                         switchAiMode('img2video');
 
-                        // ComfyUI 상태 확인 후 처리
+                        // AI 백엔드 상태 확인 후 처리
                         setTimeout(async () => {
-                            await checkComfyUI();
+                            await checkCurrentBackend();
 
-                            if (comfyuiOnline) {
+                            const isOnline = currentAiBackend === 'wangp' ? wangpOnline : comfyuiOnline;
+                            if (isOnline) {
                                 if (document.getElementById('autoAiGenerate').checked) {
                                     generateAiVideo();
                                 } else {
                                     showAiPromptModal();
                                 }
                             } else {
-                                showToast('💡 AI 영상 생성을 위해 ComfyUI를 시작해주세요');
-                                document.getElementById('comfyConnectionStatus').scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                const backendName = currentAiBackend === 'wangp' ? 'WanGP' : 'ComfyUI';
+                                showToast(`💡 AI 영상 생성을 위해 ${backendName}를 시작해주세요`);
+                                document.getElementById('aiConnectionStatus').scrollIntoView({ behavior: 'smooth', block: 'center' });
                             }
                         }, 300);
                     }
@@ -1549,9 +1566,75 @@
             showToast('💾 프로젝트 저장됨');
         }
 
+        // AI 백엔드 전환
+        function switchAiBackend(backend) {
+            currentAiBackend = backend;
+            const wangpAccess = document.getElementById('wangpDirectAccess');
+            if (backend === 'wangp') {
+                wangpAccess.style.display = 'block';
+            } else {
+                wangpAccess.style.display = 'none';
+            }
+            checkCurrentBackend();
+        }
+
+        // 현재 백엔드 연결 확인
+        async function checkCurrentBackend() {
+            if (currentAiBackend === 'wangp') {
+                await checkWanGP();
+            } else {
+                await checkComfyUI();
+            }
+        }
+
+        // WanGP 직접 열기
+        function openWanGP() {
+            if (wangpUrl) {
+                window.open(wangpUrl, '_blank');
+            } else {
+                window.open('http://100.78.58.105:7860', '_blank');
+            }
+        }
+
+        // WanGP 서버 상태 확인
+        async function checkWanGP() {
+            const statusPanel = document.getElementById('aiConnectionStatus');
+            const statusText = document.getElementById('aiConnectionText');
+            const urlDisplay = document.getElementById('aiUrlDisplay');
+            const generateBtn = document.getElementById('aiGenerateBtn');
+
+            try {
+                const response = await fetch('/api/wangp/health');
+                const data = await response.json();
+                wangpUrl = data.url || 'http://127.0.0.1:7860';
+
+                if (data.ok === true) {
+                    wangpOnline = true;
+                    statusPanel.style.background = 'rgba(40,167,69,0.2)';
+                    statusPanel.style.borderColor = 'rgba(40,167,69,0.5)';
+                    statusText.innerHTML = '<span style="color: #28a745;">✅ WanGP 연결됨</span> <span style="font-size: 11px; color: rgba(255,255,255,0.6);">- Desktop GPU 사용 가능</span>';
+                    urlDisplay.textContent = wangpUrl;
+                    generateBtn.disabled = false;
+                    generateBtn.style.opacity = '1';
+                } else {
+                    throw new Error('WanGP not ready');
+                }
+            } catch (error) {
+                wangpOnline = false;
+                statusPanel.style.background = 'rgba(220,53,69,0.2)';
+                statusPanel.style.borderColor = 'rgba(220,53,69,0.5)';
+                statusText.textContent = '⚠️ WanGP 서버가 연결되지 않음';
+                urlDisplay.textContent = 'Desktop에서 Pinokio 실행 필요';
+                generateBtn.disabled = true;
+                generateBtn.style.opacity = '0.5';
+            }
+        }
+
         // ComfyUI 서버 상태 확인
         async function checkComfyUI() {
-            const statusPanel = document.getElementById('comfyConnectionStatus');
+            const statusPanel = document.getElementById('aiConnectionStatus');
+            const statusText = document.getElementById('aiConnectionText');
+            const urlDisplay = document.getElementById('aiUrlDisplay');
             const generateBtn = document.getElementById('aiGenerateBtn');
 
             try {
@@ -1561,22 +1644,10 @@
 
                 if (data.ok === true) {
                     comfyuiOnline = true;
-                    document.getElementById('comfyStatusDot').classList.add('online');
-                    document.getElementById('comfyStatusText').textContent = 'ComfyUI 연결됨';
-
-                    // 연결 상태 패널 업데이트
                     statusPanel.style.background = 'rgba(40,167,69,0.2)';
                     statusPanel.style.borderColor = 'rgba(40,167,69,0.5)';
-                    statusPanel.innerHTML = `
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="color: #28a745;">✅ ComfyUI 연결됨</span>
-                            <span style="font-size: 11px; color: rgba(255,255,255,0.6);">- AI 영상 생성 준비 완료</span>
-                        </div>
-                        <p style="font-size: 11px; color: rgba(255,255,255,0.6); margin-top: 8px;">
-                            서버: <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">${comfyUrl}</code>
-                            <button onclick="checkComfyUI()" style="margin-left: 8px; padding: 2px 8px; background: rgba(255,255,255,0.2); border: none; border-radius: 4px; color: white; font-size: 10px; cursor: pointer;">🔄</button>
-                        </p>
-                    `;
+                    statusText.innerHTML = '<span style="color: #28a745;">✅ ComfyUI 연결됨</span> <span style="font-size: 11px; color: rgba(255,255,255,0.6);">- 로컬 AI 영상 생성 가능</span>';
+                    urlDisplay.textContent = comfyUrl;
                     generateBtn.disabled = false;
                     generateBtn.style.opacity = '1';
                 } else {
@@ -1584,23 +1655,10 @@
                 }
             } catch (error) {
                 comfyuiOnline = false;
-                document.getElementById('comfyStatusDot').classList.remove('online');
-                document.getElementById('comfyStatusText').textContent = 'ComfyUI 오프라인';
-
-                // 연결 상태 패널 업데이트
                 statusPanel.style.background = 'rgba(220,53,69,0.2)';
                 statusPanel.style.borderColor = 'rgba(220,53,69,0.5)';
-                statusPanel.innerHTML = `
-                    <div style="display: flex; align-items: center; justify-content: space-between;">
-                        <span style="font-size: 13px;">⚠️ ComfyUI 서버가 연결되지 않음</span>
-                        <button onclick="checkComfyUI()" style="padding: 6px 12px; background: #ffa500; border: none; border-radius: 6px; color: white; font-size: 12px; cursor: pointer;">
-                            🔄 연결 확인
-                        </button>
-                    </div>
-                    <p style="font-size: 11px; color: rgba(255,255,255,0.6); margin-top: 8px;">
-                        터미널: <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">cd /Users/sharkey/Desktop/ComfyUI && python main.py</code>
-                    </p>
-                `;
+                statusText.textContent = '⚠️ ComfyUI 서버가 연결되지 않음';
+                urlDisplay.textContent = '로컬 ComfyUI 실행 필요';
                 generateBtn.disabled = true;
                 generateBtn.style.opacity = '0.5';
             }
@@ -1654,13 +1712,16 @@
             }
         }
 
-        // AI 영상 생성 (ComfyUI Wan2.2)
+        // AI 영상 생성 (WanGP 또는 ComfyUI Wan2.2)
         async function generateAiVideo() {
-            if (!comfyuiOnline) {
-                showToast('⚠️ ComfyUI 서버를 먼저 시작하세요');
-                // 연결 상태 패널로 스크롤
-                document.getElementById('comfyConnectionStatus').scrollIntoView({ behavior: 'smooth', block: 'center' });
-                startComfyUI();
+            const isOnline = currentAiBackend === 'wangp' ? wangpOnline : comfyuiOnline;
+            if (!isOnline) {
+                const backendName = currentAiBackend === 'wangp' ? 'WanGP' : 'ComfyUI';
+                showToast(`⚠️ ${backendName} 서버를 먼저 시작하세요`);
+                document.getElementById('aiConnectionStatus').scrollIntoView({ behavior: 'smooth', block: 'center' });
+                if (currentAiBackend === 'comfyui') {
+                    startComfyUI();
+                }
                 return;
             }
 
@@ -1669,6 +1730,88 @@
                 return;
             }
 
+            // WanGP 백엔드 사용시
+            if (currentAiBackend === 'wangp') {
+                await generateWanGPVideo();
+                return;
+            }
+
+            // ComfyUI 백엔드 사용시
+            await generateComfyUIVideo();
+        }
+
+        // WanGP 영상 생성 (Gradio API)
+        async function generateWanGPVideo() {
+            aiGenerating = true;
+            const statusEl = document.getElementById('aiStatus');
+            const statusText = document.getElementById('aiStatusText');
+            const progressBar = document.getElementById('aiProgressBar');
+
+            statusEl.classList.add('show');
+            statusText.textContent = '🔄 WanGP 준비 중...';
+            progressBar.style.width = '10%';
+
+            try {
+                let prompt, imageBase64 = null;
+
+                if (currentAiMode === 'text2video') {
+                    prompt = document.getElementById('t2vPrompt').value;
+                    if (!prompt.trim()) {
+                        showToast('⚠️ 프롬프트를 입력하세요');
+                        aiGenerating = false;
+                        statusEl.classList.remove('show');
+                        return;
+                    }
+                } else {
+                    // Image-to-Video 모드
+                    if (selectedIndex < 0 || !images[selectedIndex]) {
+                        showToast('⚠️ 먼저 이미지를 선택하세요');
+                        aiGenerating = false;
+                        statusEl.classList.remove('show');
+                        return;
+                    }
+                    prompt = document.getElementById('i2vPrompt').value || 'smooth camera motion';
+                    imageBase64 = images[selectedIndex].src;
+                }
+
+                statusText.textContent = '🎬 WanGP 인터페이스를 여는 중...';
+                progressBar.style.width = '50%';
+
+                // WanGP는 Gradio 기반이라 직접 API 호출이 복잡함
+                // 프롬프트를 클립보드에 복사하고 WanGP 인터페이스 열기
+                try {
+                    await navigator.clipboard.writeText(prompt);
+                    showToast('📋 프롬프트가 클립보드에 복사되었습니다');
+                } catch (e) {
+                    console.log('클립보드 복사 실패:', e);
+                }
+
+                // WanGP 인터페이스 열기
+                const wangpWindow = window.open(wangpUrl, 'wangp_window');
+
+                statusText.textContent = '✅ WanGP가 열렸습니다. 프롬프트를 붙여넣고 생성하세요.';
+                progressBar.style.width = '100%';
+
+                // 안내 메시지
+                showToast('💡 WanGP에서 프롬프트를 붙여넣고 Generate를 클릭하세요');
+
+                setTimeout(() => {
+                    statusEl.classList.remove('show');
+                    progressBar.style.width = '0%';
+                }, 3000);
+
+            } catch (error) {
+                console.error('WanGP 오류:', error);
+                showToast('❌ 오류: ' + error.message);
+                statusText.textContent = '❌ 오류 발생: ' + error.message;
+                progressBar.style.width = '0%';
+            } finally {
+                aiGenerating = false;
+            }
+        }
+
+        // ComfyUI 영상 생성
+        async function generateComfyUIVideo() {
             aiGenerating = true;
             const statusEl = document.getElementById('aiStatus');
             const statusText = document.getElementById('aiStatusText');
@@ -2008,9 +2151,9 @@
 
         // 초기화
         checkServer();
-        checkComfyUI();
+        checkCurrentBackend();
         setInterval(checkServer, 5000);
-        setInterval(checkComfyUI, 5000);
+        setInterval(checkCurrentBackend, 5000);
 
         // 부모 창과 통신
         if (window.opener) {
@@ -2037,11 +2180,12 @@
                     selectImage(0);
                     switchAiMode('img2video');
 
-                    // ComfyUI 상태 확인 후 처리
+                    // AI 백엔드 상태 확인 후 처리
                     setTimeout(async () => {
-                        await checkComfyUI();
+                        await checkCurrentBackend();
 
-                        if (comfyuiOnline) {
+                        const isOnline = currentAiBackend === 'wangp' ? wangpOnline : comfyuiOnline;
+                        if (isOnline) {
                             // 자동 생성 체크박스가 켜져 있으면 바로 생성
                             if (document.getElementById('autoAiGenerate').checked) {
                                 generateAiVideo();
@@ -2049,9 +2193,10 @@
                                 showAiPromptModal();
                             }
                         } else {
-                            // ComfyUI가 연결되지 않은 경우 안내
-                            showToast('💡 AI 영상 생성을 위해 ComfyUI를 시작해주세요');
-                            document.getElementById('comfyConnectionStatus').scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            // AI 백엔드가 연결되지 않은 경우 안내
+                            const backendName = currentAiBackend === 'wangp' ? 'WanGP' : 'ComfyUI';
+                            showToast(`💡 AI 영상 생성을 위해 ${backendName}를 시작해주세요`);
+                            document.getElementById('aiConnectionStatus').scrollIntoView({ behavior: 'smooth', block: 'center' });
                         }
                     }, 300);
                 }
