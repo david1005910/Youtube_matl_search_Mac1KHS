@@ -114,9 +114,20 @@ Key source files: `src/Root.tsx`, `src/SubtitleOverlay.tsx`, `src/ImageSlide.tsx
 - `flow-bridge-extension/` — Bridges to Google Flow (labs.google) for automated AI video generation
 - `grok-bridge-extension/` — Bridges to Grok.com for Grok AI integration
 
-### ComfyUI AI Video Generation
+### AI Video Generation (WanGP / ComfyUI)
 
-ComfyUI integration for AI-powered video generation using Wan2.1 models. Supports local and remote (Tailscale) connections.
+Two backends for AI-powered video generation using Wan2.x models:
+
+**WanGP (Recommended for remote GPU):**
+- Gradio-based interface by DeepBeepMeep
+- Runs on Desktop PC via Pinokio, accessed via Tailscale
+- Requires `WANGP_URL` in `.env` (e.g., `http://100.78.58.105:7860`)
+- Desktop settings: `PINOKIO_SHARE_LOCAL=true`, `PINOKIO_SHARE_LOCAL_PORT=7860`
+
+**ComfyUI (Local or remote):**
+- Node-based workflow system
+- Requires `COMFYUI_URL` in `.env`
+- Custom nodes: `ComfyUI-WAN`, `ComfyUI-VideoHelperSuite`, `ComfyUI-GGUF`
 
 **Workflow JSON files (`workflows/` directory):**
 | File | Purpose |
@@ -132,16 +143,15 @@ ComfyUI integration for AI-powered video generation using Wan2.1 models. Support
 | Wan2.1-T2V-14B | ~10GB | High |
 | Wan2.1-I2V-14B-480P | ~10GB | High |
 
-**Custom Nodes:** `ComfyUI-WAN`, `ComfyUI-VideoHelperSuite`, `ComfyUI-GGUF` (optional)
-
 **API Endpoints (via server.py proxy):**
 | Route | Purpose |
 |-------|---------|
+| `GET /api/wangp/health` | Check WanGP connection |
+| `GET/POST /api/proxy/wangp/*` | Proxy to WanGP Gradio API |
 | `POST /api/proxy/comfyui/prompt` | Queue workflow to ComfyUI |
 | `POST /api/proxy/comfyui/upload/image` | Upload image to ComfyUI |
-| `GET /api/comfyui/health` | Check ComfyUI connection (returns URL) |
+| `GET /api/comfyui/health` | Check ComfyUI connection |
 | `GET /api/proxy/comfyui/history` | Get workflow history |
-| `GET /api/proxy/comfyui/view` | Get generated output files |
 
 ## Development Notes
 
@@ -163,7 +173,8 @@ ComfyUI integration for AI-powered video generation using Wan2.1 models. Support
 | `XAI_API_KEY` | Reserved for future X AI integration |
 | `IMGBB_API_KEY` | imgbb image hosting (for Grok image→video workflow) |
 | `STABILITY_API_KEY` | Stability AI (Stable Diffusion 3.5 image generation) |
-| `COMFYUI_URL` | ComfyUI server URL (default `http://127.0.0.1:8188`, Tailscale 원격: `http://100.x.x.x:8188`) |
+| `COMFYUI_URL` | ComfyUI server URL (default `http://127.0.0.1:8188`) |
+| `WANGP_URL` | WanGP server URL for remote GPU via Tailscale (e.g., `http://100.78.58.105:7860`) |
 
 ## API Quota
 
