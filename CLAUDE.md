@@ -152,11 +152,12 @@ Two backends for AI-powered video generation using Wan2.x models:
 | `POST /api/proxy/comfyui/upload/image` | Upload image to ComfyUI |
 | `GET /api/comfyui/health` | Check ComfyUI connection |
 | `GET /api/proxy/comfyui/history` | Get workflow history |
+| `GET /api/proxy/comfyui/view` | Fetch a generated output file from ComfyUI |
 
 ## Development Notes
 
 - **No build system**: Frontend uses CDN-based Tailwind CSS; just edit and refresh
-- **macOS SSL**: `server.py` handles SSL certificate issues; install `certifi` if needed (`pip3 install certifi`)
+- **macOS SSL**: `server.py` handles SSL certificate issues; optionally install `certifi` (`pip3 install certifi`)
 - **Port allocation**: Main server `:8765`, Remotion `:8766` — avoid conflicts
 - **Large files**: `app.js` (~5,800 lines) and `index.html` (~1,200 lines) are monolithic; search carefully before editing
 - **Health check**: Open `check-remotion.html` to verify Remotion server status
@@ -170,11 +171,11 @@ Two backends for AI-powered video generation using Wan2.x models:
 | `GEMINI_API_KEY` | Gemini AI (comment analysis, script generation, image chat) |
 | `GEMINI_MODEL` | Model name, default `gemini-2.5-flash` |
 | `TRANSCRIPT_API_KEY` | transcriptapi.com (TranscriptAPI chat widget) |
-| `XAI_API_KEY` | Reserved for future X AI integration |
+| `XAI_API_KEY` | Grok AI video generation (text→video, image→video) |
 | `IMGBB_API_KEY` | imgbb image hosting (for Grok image→video workflow) |
 | `STABILITY_API_KEY` | Stability AI (Stable Diffusion 3.5 image generation) |
 | `COMFYUI_URL` | ComfyUI server URL (default `http://127.0.0.1:8188`) |
-| `WANGP_URL` | WanGP server URL for remote GPU via Tailscale (e.g., `http://100.78.58.105:7860`) |
+| `WANGP_URL` | WanGP server URL (default `http://127.0.0.1:7860`, use Tailscale IP for remote GPU) |
 
 ## API Quota
 
