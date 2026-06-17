@@ -280,6 +280,40 @@
     .grok-opt-btn.active { background: #e11d48; border-color: #e11d48; color: #fff; }
     .grok-opt-btn:hover:not(.active) { border-color: #e11d48; color: #fda4af; }
 
+    /* ── WanGP 영상 생성 위젯 (로컬/원격 GPU, Wan2.x) ── */
+    #wangpVideoToggle {
+      position: fixed; top: 24px; right: 552px; z-index: 1000;
+      width: 52px; height: 52px; border-radius: 50%;
+      background: linear-gradient(135deg, #6366f1, #4338ca);
+      border: none; cursor: pointer; font-size: 22px;
+      box-shadow: 0 4px 20px rgba(99,102,241,0.5);
+      transition: transform 0.2s;
+    }
+    #wangpVideoToggle:hover { transform: scale(1.08); }
+    #wangpVideoWindow {
+      position: fixed; right: 16px; z-index: 999;
+      top: calc(24px + 52px + 10px);
+      width: min(520px, calc(100vw - 32px));
+      height: min(720px, calc(100vh - 100px));
+      background: #1e293b; border: 1px solid #334155;
+      border-radius: 16px; flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+      overflow: hidden; display: none;
+    }
+    #wangpVideoWindow.open { display: flex; }
+    #wangpVideoBody {
+      flex: 1; min-height: 0; overflow-y: auto; padding: 16px;
+    }
+    #wangpVideoBody::-webkit-scrollbar { width: 6px; }
+    #wangpVideoBody::-webkit-scrollbar-track { background: #0f172a; }
+    #wangpVideoBody::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+    .wangp-opt-btn {
+      padding: 4px 10px; border-radius: 8px; font-size: 11px; font-weight: 600;
+      border: 1px solid #475569; background: #0f172a; color: #94a3b8; cursor: pointer; transition: all 0.15s;
+    }
+    .wangp-opt-btn.active { background: #6366f1; border-color: #6366f1; color: #fff; }
+    .wangp-opt-btn:hover:not(.active) { border-color: #6366f1; color: #c7d2fe; }
+
     /* ── 나레이션 TTS 위젯 ── */
     #ttsToggle {
       position: fixed; top: 24px; right: 420px; z-index: 1000;
@@ -610,7 +644,7 @@
   </div>
 </div>
 
-<script src="app.js?v=20260517e" defer>
+<script src="app.js?v=20260618a" defer>
 </script>
 
 <!-- ── YouTube Creator AI 채팅 위젯 ── -->
@@ -911,6 +945,119 @@
   </div>
 </div>
 <button id="grokVideoToggle" title="Grok 영상 생성 (xAI)">🎥</button>
+
+<!-- ── WanGP 영상 생성 위젯 (로컬/원격 GPU, Wan2.x) ── -->
+<div id="wangpVideoWindow">
+  <div class="flex items-center justify-between px-4 py-3 border-b border-slate-700 flex-shrink-0">
+    <div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <p class="text-sm font-bold text-indigo-300">🎬 WanGP 영상 생성</p>
+        <span id="wangpStatusBadge" class="text-[10px] bg-slate-700 text-slate-400 px-2 py-0.5 rounded-full">● 연결 확인 중</span>
+      </div>
+      <p class="text-[11px] text-slate-500">원격 GPU(Wan2.x) 로컬 무료 생성 · 사이드카 필요</p>
+    </div>
+    <button id="wangpVideoCloseBtn" class="text-slate-400 hover:text-white text-lg leading-none">✕</button>
+  </div>
+  <div id="wangpVideoBody">
+
+    <!-- 모드 탭 -->
+    <div class="flex gap-1.5 mb-4">
+      <button id="wangpTabText" onclick="switchWangpTab('text')"
+        class="flex-1 py-2 text-xs font-bold rounded-lg bg-indigo-700 text-white border border-indigo-600 transition">
+        ✏️ 텍스트→영상
+      </button>
+      <button id="wangpTabImg" onclick="switchWangpTab('image')"
+        class="flex-1 py-2 text-xs font-bold rounded-lg bg-slate-700 text-slate-300 border border-slate-600 transition">
+        🖼️ 이미지→영상
+      </button>
+    </div>
+
+    <!-- 모델 선택 -->
+    <div class="mb-4">
+      <label class="block text-[11px] font-bold text-slate-300 mb-1.5">모델</label>
+      <select id="wangpModel"
+        class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500">
+        <option value="t2v_1.3B">Wan2.1 Text2video 1.3B (빠름, ~6GB)</option>
+        <option value="t2v">Wan2.1 Text2video 14B (고화질, ~10GB)</option>
+        <option value="i2v">Wan2.1 Image2video 480p 14B</option>
+        <option value="i2v_720p">Wan2.1 Image2video 720p 14B</option>
+      </select>
+    </div>
+
+    <!-- 이미지 업로드 (이미지→영상 탭) -->
+    <div id="wangpImgPanel" class="hidden mb-4 p-3 bg-slate-900/60 border border-slate-700 rounded-xl">
+      <p class="text-[11px] font-bold text-indigo-300 mb-2">시작 이미지</p>
+      <div id="wangpCardThumbStrip" class="hidden mb-3">
+        <p class="text-[10px] text-slate-400 mb-1.5">생성된 카드 이미지 선택</p>
+        <div id="wangpCardThumbs" class="flex gap-1.5 overflow-x-auto pb-1"></div>
+      </div>
+      <label class="flex items-center gap-2 cursor-pointer">
+        <span class="bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold px-3 py-2 rounded-lg transition whitespace-nowrap">
+          📁 직접 업로드
+        </span>
+        <input type="file" accept="image/*" id="wangpImgInput" class="hidden" onchange="handleWangpImgUpload(this)">
+        <span id="wangpImgName" class="text-[11px] text-slate-400 truncate">미선택</span>
+      </label>
+      <div id="wangpImgPreview" class="hidden mt-2">
+        <img id="wangpImgEl" class="w-full max-h-36 object-contain rounded-lg border border-slate-700" />
+      </div>
+    </div>
+
+    <!-- 프롬프트 -->
+    <div class="mb-4">
+      <label class="block text-[11px] font-bold text-slate-300 mb-1.5">프롬프트 (영문 권장)</label>
+      <textarea id="wangpPrompt" rows="4"
+        placeholder="예: A cinematic shot of a waterfall in a forest, golden hour, slow motion..."
+        class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-100 resize-none focus:outline-none focus:border-indigo-500"></textarea>
+      <label class="block text-[11px] font-bold text-slate-300 mb-1.5 mt-3">네거티브 프롬프트 (선택)</label>
+      <input id="wangpNegPrompt" type="text"
+        placeholder="blurry, low quality, distorted"
+        class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500" />
+    </div>
+
+    <!-- 영상 설정 -->
+    <div class="mb-4 p-3 bg-slate-900/60 border border-slate-700 rounded-xl space-y-3">
+      <p class="text-[11px] font-bold text-slate-300">영상 설정</p>
+      <div>
+        <p class="text-[10px] text-slate-400 mb-1.5">해상도</p>
+        <div class="flex gap-1.5 flex-wrap" id="wangpResRow">
+          <button class="wangp-opt-btn wangp-res active" data-val="832x480">832×480 가로</button>
+          <button class="wangp-opt-btn wangp-res" data-val="480x832">480×832 세로</button>
+          <button class="wangp-opt-btn wangp-res" data-val="1280x720">1280×720 HD</button>
+          <button class="wangp-opt-btn wangp-res" data-val="720x1280">720×1280 세로HD</button>
+        </div>
+      </div>
+      <div>
+        <p class="text-[10px] text-slate-400 mb-1.5">길이 (프레임 · 16fps 기준)</p>
+        <div class="flex gap-1.5 flex-wrap" id="wangpLenRow">
+          <button class="wangp-opt-btn wangp-len active" data-val="49">49 (~3초)</button>
+          <button class="wangp-opt-btn wangp-len" data-val="65">65 (~4초)</button>
+          <button class="wangp-opt-btn wangp-len" data-val="81">81 (~5초)</button>
+        </div>
+      </div>
+      <div>
+        <p class="text-[10px] text-slate-400 mb-1.5">스텝 (품질↔속도)</p>
+        <div class="flex gap-1.5 flex-wrap" id="wangpStepRow">
+          <button class="wangp-opt-btn wangp-step" data-val="15">15 (빠름)</button>
+          <button class="wangp-opt-btn wangp-step active" data-val="25">25 (기본)</button>
+          <button class="wangp-opt-btn wangp-step" data-val="30">30 (고품질)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 생성 버튼 -->
+    <button id="wangpGenerateBtn" onclick="startWangpGenerate()"
+      class="w-full bg-gradient-to-r from-indigo-600 to-violet-700 hover:from-indigo-500 hover:to-violet-600
+             text-white text-sm font-bold py-2.5 rounded-xl transition mb-4 flex items-center justify-center gap-2">
+      🎬 영상 생성 시작
+    </button>
+
+    <!-- 생성 큐 목록 -->
+    <div id="wangpQueue" class="space-y-3"></div>
+
+  </div>
+</div>
+<button id="wangpVideoToggle" title="WanGP 영상 생성 (Wan2.x)">🎬</button>
 
 <!-- ── AI 이미지 생성 모달 ── -->
 <div id="grokModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 hidden px-4 py-6"

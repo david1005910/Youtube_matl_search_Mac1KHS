@@ -3,3 +3,8 @@ remotion/node_modules/
 __pycache__/
 *.pyc
 *.DS_Store
+
+# Vendored WanGP (Wan2GP-main) third-party source — keep only our integration files
+Wan2GP-main/*
+!Wan2GP-main/wangp_rest_server.py
+!Wan2GP-main/WANGP_REST_SETUP.md

@@ -119,10 +119,17 @@ Key source files: `src/Root.tsx`, `src/SubtitleOverlay.tsx`, `src/ImageSlide.tsx
 Two backends for AI-powered video generation using Wan2.x models:
 
 **WanGP (Recommended for remote GPU):**
-- Gradio-based interface by DeepBeepMeep
+- Gradio-based interface by DeepBeepMeep (source vendored in `Wan2GP-main/`)
 - Runs on Desktop PC via Pinokio, accessed via Tailscale
-- Requires `WANGP_URL` in `.env` (e.g., `http://100.78.58.105:7860`)
+- `WANGP_URL` in `.env` (e.g., `http://100.78.58.105:7860`) points at the Gradio UI
 - Desktop settings: `PINOKIO_SHARE_LOCAL=true`, `PINOKIO_SHARE_LOCAL_PORT=7860`
+
+**WanGP REST sidecar (`Wan2GP-main/wangp_rest_server.py`) — drives the in-app `🎬 WanGP 영상 생성` widget:**
+- WanGP's Gradio app exposes **no clean REST API** (no `api_name`), so the app does not call Gradio directly. Instead a small stdlib HTTP sidecar wraps WanGP's documented in-process Python API (`Wan2GP-main/shared/api.py`).
+- Run it **on the GPU machine** inside WanGP's Python env: `python wangp_rest_server.py --host 0.0.0.0 --port 7861` (see `Wan2GP-main/WANGP_REST_SETUP.md`).
+- The Mac app reaches it via `WANGP_API_URL` in `.env` (default `http://127.0.0.1:7861`; use the Tailscale IP for remote GPU, e.g. `http://100.78.58.105:7861`).
+- Sidecar contract: `GET /health`, `GET /models`, `POST /generate` → `{job_id}`, `GET /job/<id>`, `POST /cancel/<id>`, `GET /file?name=`. Generation is serialized via a single worker queue; the model stays warm across requests.
+- Wan2.1 `model_type` values are the filename stems under `Wan2GP-main/defaults/`: `t2v_1.3B`, `t2v`, `i2v`, `i2v_720p`.
 
 **ComfyUI (Local or remote):**
 - Node-based workflow system
@@ -146,8 +153,14 @@ Two backends for AI-powered video generation using Wan2.x models:
 **API Endpoints (via server.py proxy):**
 | Route | Purpose |
 |-------|---------|
-| `GET /api/wangp/health` | Check WanGP connection |
+| `GET /api/wangp/health` | Check WanGP Gradio UI connection (`WANGP_URL`) |
 | `GET/POST /api/proxy/wangp/*` | Proxy to WanGP Gradio API |
+| `GET /api/wangp/api-health` | Check WanGP REST sidecar (`WANGP_API_URL`) |
+| `GET /api/wangp/models` | List Wan2.x video models (via sidecar) |
+| `POST /api/wangp/generate` | Start a WanGP generation → `{job_id}` |
+| `GET /api/wangp/job/<id>` | Poll generation status / result files |
+| `POST /api/wangp/cancel/<id>` | Cancel a running generation |
+| `GET /api/wangp/file?name=` | Fetch a generated video from the sidecar |
 | `POST /api/proxy/comfyui/prompt` | Queue workflow to ComfyUI |
 | `POST /api/proxy/comfyui/upload/image` | Upload image to ComfyUI |
 | `GET /api/comfyui/health` | Check ComfyUI connection |
@@ -175,7 +188,8 @@ Two backends for AI-powered video generation using Wan2.x models:
 | `IMGBB_API_KEY` | imgbb image hosting (for Grok image→video workflow) |
 | `STABILITY_API_KEY` | Stability AI (Stable Diffusion 3.5 image generation) |
 | `COMFYUI_URL` | ComfyUI server URL (default `http://127.0.0.1:8188`) |
-| `WANGP_URL` | WanGP server URL (default `http://127.0.0.1:7860`, use Tailscale IP for remote GPU) |
+| `WANGP_URL` | WanGP Gradio UI URL (default `http://127.0.0.1:7860`, use Tailscale IP for remote GPU) |
+| `WANGP_API_URL` | WanGP REST sidecar URL (default `http://127.0.0.1:7861`, use Tailscale IP for remote GPU) |
 
 ## API Quota
 

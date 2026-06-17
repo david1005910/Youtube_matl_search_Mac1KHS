@@ -32,6 +32,7 @@ def load_env():
         'STABILITY_API_KEY': '',
         'COMFYUI_URL': 'http://127.0.0.1:8188',
         'WANGP_URL': 'http://127.0.0.1:7860',
+        'WANGP_API_URL': 'http://127.0.0.1:7861',
     }
     if ENV_FILE.exists():
         for line in ENV_FILE.read_text(encoding='utf-8').splitlines():
@@ -52,6 +53,7 @@ def save_env(data):
         f"STABILITY_API_KEY={data.get('STABILITY_API_KEY', '')}\n"
         f"COMFYUI_URL={data.get('COMFYUI_URL', 'http://127.0.0.1:8188')}\n"
         f"WANGP_URL={data.get('WANGP_URL', 'http://127.0.0.1:7860')}\n"
+        f"WANGP_API_URL={data.get('WANGP_API_URL', 'http://127.0.0.1:7861')}\n"
     )
     ENV_FILE.write_text(content, encoding='utf-8')
 
@@ -64,6 +66,11 @@ def get_comfyui_url():
     """ComfyUI 서버 URL 반환 (Tailscale 등 원격 연결 지원)"""
     env = load_env()
     return env.get('COMFYUI_URL', 'http://127.0.0.1:8188').rstrip('/')
+
+def get_wangp_api_url():
+    """WanGP REST 사이드카 URL 반환 (wangp_rest_server.py, 기본 :7861)"""
+    env = load_env()
+    return env.get('WANGP_API_URL', 'http://127.0.0.1:7861').rstrip('/')
 
 # ── claude-youtube-main 스킬 (YouTube Creator AI) ──
 def get_skill_content(skill_name):
@@ -272,6 +279,50 @@ class Handler(SimpleHTTPRequestHandler):
                 self.wfile.write(resp_body)
             except Exception as e:
                 _send_json(self, 500, {'error': f'ComfyUI view 실패: {str(e)}'})
+
+        # ── WanGP REST 사이드카 프록시 (영상 생성) ──────────────────
+        elif self.path == '/api/wangp/api-health':
+            # 사이드카(wangp_rest_server.py) 연결 상태 확인
+            api_base = get_wangp_api_url()
+            try:
+                req = urllib.request.Request(f'{api_base}/health')
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    resp_body = resp.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except Exception:
+                _send_json(self, 200, {'ok': False, 'status': 'WanGP API 오프라인',
+                                       'url': api_base})
+
+        elif (self.path == '/api/wangp/models'
+              or self.path.startswith('/api/wangp/job/')
+              or self.path.startswith('/api/wangp/file')):
+            # 모델 목록 / 작업 상태 / 결과 파일을 사이드카로 GET 전달
+            api_base = get_wangp_api_url()
+            sub_path = self.path[len('/api/wangp'):]
+            target = f'{api_base}{sub_path}'
+            try:
+                req = urllib.request.Request(target)
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    resp_body = resp.read()
+                    content_type = resp.headers.get('Content-Type', 'application/json')
+                self.send_response(200)
+                self.send_header('Content-Type', content_type)
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except urllib.error.HTTPError as e:
+                err_body = e.read() or b'{}'
+                self.send_response(e.code)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(err_body))
+                self.end_headers()
+                self.wfile.write(err_body)
+            except Exception as e:
+                _send_json(self, 502, {'error': f'WanGP API 요청 실패: {str(e)}'})
 
         else:
             super().do_GET()
@@ -774,6 +825,35 @@ class Handler(SimpleHTTPRequestHandler):
                 self.wfile.write(err_body)
             except Exception as e:
                 _send_json(self, 500, {'error': f'WanGP 요청 실패: {str(e)}'})
+
+        # ── WanGP REST 사이드카 프록시 (영상 생성 시작 / 취소) ──────
+        elif self.path == '/api/wangp/generate' or self.path.startswith('/api/wangp/cancel/'):
+            api_base = get_wangp_api_url()
+            sub_path = self.path[len('/api/wangp'):]
+            target = f'{api_base}{sub_path}'
+            req = urllib.request.Request(
+                target,
+                data=body_raw,
+                headers={'Content-Type': 'application/json'},
+                method='POST'
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    resp_body = resp.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except urllib.error.HTTPError as e:
+                err_body = e.read() or b'{}'
+                self.send_response(e.code)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(err_body))
+                self.end_headers()
+                self.wfile.write(err_body)
+            except Exception as e:
+                _send_json(self, 502, {'error': f'WanGP API 연결 실패 (사이드카 미실행?): {str(e)}'})
 
         # ── ComfyUI 프록시 (영상 생성) ────────────────────────────
         elif self.path == '/api/proxy/comfyui/prompt':
