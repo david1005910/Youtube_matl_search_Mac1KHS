@@ -99,7 +99,7 @@ cd remotion && npm run studio              # Opens Remotion Studio GUI
 
 ### `remotion/` — Subtitle Renderer
 
-Express + Remotion 4.0.457 at `http://localhost:8766`.
+Express + Remotion 4.0.457 at `http://localhost:8766`. `npm start` runs `node render-server.mjs` (the Express entry point); `npm run studio` opens the Remotion Studio GUI.
 
 | Endpoint | Purpose |
 |----------|---------|
