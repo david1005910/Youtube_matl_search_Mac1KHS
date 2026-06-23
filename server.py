@@ -5,7 +5,7 @@
 접속: http://localhost:8765
 """
 import json, os, ssl, subprocess, tempfile, shutil, urllib.request, urllib.parse, urllib.error
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import HTTPServer, ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
 # macOS Python SSL 인증서 문제 우회 (로컬 개발 서버용)
@@ -914,7 +914,9 @@ class Handler(SimpleHTTPRequestHandler):
 if __name__ == '__main__':
     port = 8765
     os.chdir(Path(__file__).parent)
-    server = HTTPServer(('localhost', port), Handler)
+    # ThreadingHTTPServer: 요청을 스레드별로 처리해, 느린 외부 호출(WanGP 오프라인
+    # 헬스체크 등)이 다른 요청(정적 파일·API)을 막지 않도록 한다.
+    server = ThreadingHTTPServer(('localhost', port), Handler)
     print(f'✅ 서버 실행 중 → http://localhost:{port}')
     print('   종료: Ctrl+C')
     try:
