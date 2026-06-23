@@ -33,6 +33,7 @@ def load_env():
         'COMFYUI_URL': 'http://127.0.0.1:8188',
         'WANGP_URL': 'http://127.0.0.1:7860',
         'WANGP_API_URL': 'http://127.0.0.1:7861',
+        'PHOSPHENE_URL': 'http://127.0.0.1:8198',
     }
     if ENV_FILE.exists():
         for line in ENV_FILE.read_text(encoding='utf-8').splitlines():
@@ -54,6 +55,7 @@ def save_env(data):
         f"COMFYUI_URL={data.get('COMFYUI_URL', 'http://127.0.0.1:8188')}\n"
         f"WANGP_URL={data.get('WANGP_URL', 'http://127.0.0.1:7860')}\n"
         f"WANGP_API_URL={data.get('WANGP_API_URL', 'http://127.0.0.1:7861')}\n"
+        f"PHOSPHENE_URL={data.get('PHOSPHENE_URL', 'http://127.0.0.1:8198')}\n"
     )
     ENV_FILE.write_text(content, encoding='utf-8')
 
@@ -71,6 +73,11 @@ def get_wangp_api_url():
     """WanGP REST 사이드카 URL 반환 (wangp_rest_server.py, 기본 :7861)"""
     env = load_env()
     return env.get('WANGP_API_URL', 'http://127.0.0.1:7861').rstrip('/')
+
+def get_phosphene_url():
+    """Phosphene 패널(mlx_ltx_panel.py) URL 반환 (로컬 MLX 영상 생성, 기본 :8198)"""
+    env = load_env()
+    return env.get('PHOSPHENE_URL', 'http://127.0.0.1:8198').rstrip('/')
 
 # ── claude-youtube-main 스킬 (YouTube Creator AI) ──
 def get_skill_content(skill_name):
@@ -323,6 +330,48 @@ class Handler(SimpleHTTPRequestHandler):
                 self.wfile.write(err_body)
             except Exception as e:
                 _send_json(self, 502, {'error': f'WanGP API 요청 실패: {str(e)}'})
+
+        # ── Phosphene (로컬 MLX 영상 생성) ──────────────────────────────
+        elif self.path == '/api/phosphene/health':
+            base = get_phosphene_url()
+            try:
+                with urllib.request.urlopen(f'{base}/status', timeout=5) as resp:
+                    resp.read()
+                _send_json(self, 200, {'ok': True, 'status': 'Phosphene 연결됨', 'url': base})
+            except Exception:
+                _send_json(self, 200, {'ok': False, 'status': 'Phosphene 오프라인', 'url': base})
+
+        elif self.path.startswith('/api/phosphene/status'):
+            base = get_phosphene_url()
+            try:
+                with urllib.request.urlopen(f'{base}/status', timeout=30) as resp:
+                    resp_body = resp.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except Exception as e:
+                _send_json(self, 502, {'error': f'Phosphene status 실패: {str(e)}'})
+
+        elif self.path.startswith('/api/phosphene/file'):
+            # 생성된 mp4를 디스크에서 직접 읽어 스트리밍 (output_path는 이 맥의 절대경로).
+            # 안전: 경로에 'mlx_outputs'가 포함된 mp4만 허용 (로컬 출력 폴더 한정).
+            qs = urllib.parse.urlparse(self.path).query
+            fpath = (urllib.parse.parse_qs(qs).get('path') or [''])[0]
+            try:
+                p = Path(fpath).resolve()
+                if ('mlx_outputs' not in str(p)) or (p.suffix.lower() != '.mp4') \
+                        or (not p.exists()) or (not p.is_file()):
+                    _send_json(self, 404, {'error': 'file not found or not allowed'}); return
+                vdata = p.read_bytes()
+                self.send_response(200)
+                self.send_header('Content-Type', 'video/mp4')
+                self.send_header('Content-Length', len(vdata))
+                self.end_headers()
+                self.wfile.write(vdata)
+            except Exception as e:
+                _send_json(self, 500, {'error': f'Phosphene file 실패: {str(e)}'})
 
         else:
             super().do_GET()
@@ -854,6 +903,102 @@ class Handler(SimpleHTTPRequestHandler):
                 self.wfile.write(err_body)
             except Exception as e:
                 _send_json(self, 502, {'error': f'WanGP API 연결 실패 (사이드카 미실행?): {str(e)}'})
+
+        # ── Phosphene 업로드 (base64 이미지 → 패널 /upload, multipart) ──
+        elif self.path == '/api/phosphene/upload':
+            import base64 as _b64
+            data = json.loads(body_raw)
+            b64 = data.get('image', '')
+            if b64.strip().startswith('data:') and ',' in b64:
+                b64 = b64.split(',', 1)[1]
+            try:
+                img_bytes = _b64.b64decode(b64)
+            except Exception:
+                _send_json(self, 400, {'error': 'invalid base64 image'}); return
+            fname = data.get('filename', 'phosphene_input.png')
+            boundary = '----PhospheneBoundary7MA4YWxkTrZu0gW'
+            parts = [
+                f'--{boundary}\r\n'.encode(),
+                f'Content-Disposition: form-data; name="image"; filename="{fname}"\r\n'.encode(),
+                b'Content-Type: image/png\r\n\r\n',
+                img_bytes,
+                f'\r\n--{boundary}--\r\n'.encode(),
+            ]
+            req = urllib.request.Request(
+                f'{get_phosphene_url()}/upload',
+                data=b''.join(parts),
+                headers={'Content-Type': f'multipart/form-data; boundary={boundary}'},
+                method='POST'
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    resp_body = resp.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except urllib.error.HTTPError as e:
+                err_body = e.read() or b'{}'
+                self.send_response(e.code)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(err_body))
+                self.end_headers()
+                self.wfile.write(err_body)
+            except Exception as e:
+                _send_json(self, 502, {'error': f'Phosphene upload 실패 (패널 미실행?): {str(e)}'})
+
+        # ── Phosphene 영상 생성 (JSON → 패널 /queue/add, form-encoded) ──
+        elif self.path == '/api/phosphene/generate':
+            data = json.loads(body_raw)
+            form = {
+                'mode':            data.get('mode', 'i2v'),
+                'prompt':          data.get('prompt', ''),
+                'negative_prompt': data.get('negative_prompt', ''),
+                'width':           str(data.get('width', 1024)),
+                'height':          str(data.get('height', 576)),
+                'frames':          str(data.get('frames', 121)),   # 121=5s, 169=7s (frames%8==1)
+                'frame_rate':      str(data.get('frame_rate', 24)),
+                'seed':            str(data.get('seed', -1)),
+                'quality':         data.get('quality', 'balanced'),
+                'temporal_mode':   'native',
+                'stage1_steps':    str(data.get('stage1_steps', 10)),
+                'stage2_steps':    str(data.get('stage2_steps', 3)),
+                'teacache_thresh': str(data.get('teacache_thresh', 1.8)),
+                'cfg_scale':       str(data.get('cfg_scale', 3.0)),
+                'bongmath_max_iter': str(data.get('bongmath_max_iter', 100)),
+                'accel':           data.get('accel', 'off'),
+                'upscale':         data.get('upscale', 'off'),
+                'enhance':         'true' if data.get('enhance') else 'false',
+            }
+            if data.get('image'):
+                form['image'] = data['image']   # i2v: 패널 서버상의 절대 경로 (/upload 반환값)
+            if data.get('label'):
+                form['label'] = data['label']
+            body = urllib.parse.urlencode(form).encode('utf-8')
+            req = urllib.request.Request(
+                f'{get_phosphene_url()}/queue/add',
+                data=body,
+                headers={'Content-Type': 'application/x-www-form-urlencoded'},
+                method='POST'
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    resp_body = resp.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except urllib.error.HTTPError as e:
+                err_body = e.read() or b'{}'
+                self.send_response(e.code)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(err_body))
+                self.end_headers()
+                self.wfile.write(err_body)
+            except Exception as e:
+                _send_json(self, 502, {'error': f'Phosphene generate 실패 (패널 미실행?): {str(e)}'})
 
         # ── ComfyUI 프록시 (영상 생성) ────────────────────────────
         elif self.path == '/api/proxy/comfyui/prompt':
