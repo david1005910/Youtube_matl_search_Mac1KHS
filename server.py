@@ -844,6 +844,65 @@ class Handler(SimpleHTTPRequestHandler):
             finally:
                 shutil.rmtree(tmpdir, ignore_errors=True)
 
+        # ── Phosphene 로컬 mp4 경로 목록 → ffmpeg concat → MP4 반환 ──────
+        elif self.path == '/api/phosphene/concat':
+            data = json.loads(body_raw)
+            paths = data.get('paths', [])
+            if not paths:
+                _send_json(self, 400, {'error': 'paths 필요'}); return
+
+            ffmpeg_path = shutil.which('ffmpeg') or '/opt/homebrew/bin/ffmpeg'
+            if not ffmpeg_path or not Path(ffmpeg_path).exists():
+                _send_json(self, 500, {'error': 'ffmpeg를 찾을 수 없습니다. brew install ffmpeg 실행 필요'}); return
+
+            # 안전: mlx_outputs 하위의 실제 mp4만 허용
+            safe_paths = []
+            for raw in paths:
+                p = Path(raw).resolve()
+                if ('mlx_outputs' in str(p)) and (p.suffix.lower() == '.mp4') and p.exists() and p.is_file():
+                    safe_paths.append(str(p))
+            if not safe_paths:
+                _send_json(self, 400, {'error': '유효한 mp4 경로가 없습니다'}); return
+
+            tmpdir = tempfile.mkdtemp(prefix='phosphene_concat_')
+            try:
+                list_path = os.path.join(tmpdir, 'concat_list.txt')
+                with open(list_path, 'w') as f:
+                    for p in safe_paths:
+                        f.write("file '%s'\n" % p.replace("'", "'\\''"))
+
+                out_path = os.path.join(tmpdir, 'output.mp4')
+                # 동일 옵션 클립은 -c copy 로 즉시 결합. 코덱/해상도가 달라 실패하면
+                # libx264 재인코딩으로 재시도한다.
+                result = subprocess.run(
+                    [ffmpeg_path, '-y', '-f', 'concat', '-safe', '0',
+                     '-i', list_path, '-c', 'copy', out_path],
+                    capture_output=True, timeout=600
+                )
+                if result.returncode != 0:
+                    result = subprocess.run(
+                        [ffmpeg_path, '-y', '-f', 'concat', '-safe', '0',
+                         '-i', list_path, '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+                         '-crf', '20', '-preset', 'veryfast', '-an', out_path],
+                        capture_output=True, timeout=600
+                    )
+                if result.returncode != 0:
+                    err = result.stderr.decode('utf-8', errors='replace')[-500:]
+                    _send_json(self, 500, {'error': f'ffmpeg 오류: {err}'}); return
+
+                with open(out_path, 'rb') as f:
+                    mp4_data = f.read()
+                self.send_response(200)
+                self.send_header('Content-Type', 'video/mp4')
+                self.send_header('Content-Length', len(mp4_data))
+                self.send_header('Content-Disposition', 'attachment; filename="phosphene_concat.mp4"')
+                self.end_headers()
+                self.wfile.write(mp4_data)
+            except Exception as e:
+                _send_json(self, 500, {'error': str(e)})
+            finally:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+
         # ── WanGP 프록시 (POST) ────────────────────────────────
         elif self.path.startswith('/api/proxy/wangp/'):
             wangp_base = get_wangp_url()
