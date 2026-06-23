@@ -114,9 +114,9 @@ Key source files: `src/Root.tsx`, `src/SubtitleOverlay.tsx`, `src/ImageSlide.tsx
 - `flow-bridge-extension/` — Bridges to Google Flow (labs.google) for automated AI video generation
 - `grok-bridge-extension/` — Bridges to Grok.com for Grok AI integration
 
-### AI Video Generation (WanGP / ComfyUI)
+### AI Video Generation (WanGP / ComfyUI / Phosphene)
 
-Two backends for AI-powered video generation using Wan2.x models:
+Backends for AI-powered video generation. WanGP/ComfyUI use Wan2.x models (remote GPU); Phosphene runs locally on Apple Silicon (MLX).
 
 **WanGP (Recommended for remote GPU):**
 - Gradio-based interface by DeepBeepMeep (source vendored in `Wan2GP-main/`)
@@ -135,6 +135,12 @@ Two backends for AI-powered video generation using Wan2.x models:
 - Node-based workflow system
 - Requires `COMFYUI_URL` in `.env`
 - Custom nodes: `ComfyUI-WAN`, `ComfyUI-VideoHelperSuite`, `ComfyUI-GGUF`
+
+**Phosphene (local Apple Silicon / MLX) — drives the in-app per-card `🎬 Phosphene 영상 생성` button + the batch "전체 카드 영상 생성 + 합치기 (Phosphene)" button:**
+- Local generative-video panel (LTX-2 model via MLX) by Mr. Bizarro, installed through Pinokio at `~/pinokio/api/phosphene/` (daemon process `python mlx_ltx_panel.py`). No cloud, no API key — runs entirely on the Mac, so unlike WanGP it needs **no sidecar** (the panel itself is a stdlib `ThreadingHTTPServer` with a documented HTTP API; see `docs/API.md` in the Phosphene repo).
+- Listens on `http://127.0.0.1:8198` (loopback only; `:8199` in the `dev` profile). The Mac app reaches it via `PHOSPHENE_URL` in `.env`.
+- **Image→video flow** the app uses: `POST /upload` (multipart, field name `image`) → `{path}`; then `POST /queue/add` (alias `/run`, form-encoded) with `mode=i2v`, `image=<path>`, `prompt`, `width`/`height` (both ÷32), `frames` (`frames % 8 == 1`; 121≈5s, 169≈7s, 241≈10s), `quality` (`quick|balanced|standard|high`) → `{id}`; poll `GET /status` (the job shows up in `current`/`queue`/`history`; terminal status = `done|failed|cancelled|error`) → read `output_path` (MP4 under `mlx_outputs/`).
+- Generation is **serialized via a single queue**, so the batch button renders cards one at a time. Roughly ~5 min per 5s clip at 736×416 (`balanced`) on an M-series Mac. The batch uses one shared resolution so clips concat with `-c copy`.
 
 **Workflow JSON files (`workflows/` directory):**
 | File | Purpose |
@@ -166,6 +172,12 @@ Two backends for AI-powered video generation using Wan2.x models:
 | `GET /api/comfyui/health` | Check ComfyUI connection |
 | `GET /api/proxy/comfyui/history` | Get workflow history |
 | `GET /api/proxy/comfyui/view` | Fetch a generated output file from ComfyUI |
+| `GET /api/phosphene/health` | Check Phosphene panel connection (`PHOSPHENE_URL`) |
+| `POST /api/phosphene/upload` | Upload a base64 image → panel `/upload`, returns server-side path |
+| `POST /api/phosphene/generate` | Start an i2v render → panel `/queue/add` → `{id}` |
+| `GET /api/phosphene/status` | Poll panel state (current/queue/history) |
+| `GET /api/phosphene/file?path=` | Stream a generated MP4 from `mlx_outputs/` (path-allowlisted) |
+| `POST /api/phosphene/concat` | ffmpeg-concat local Phosphene MP4 paths → single MP4 (batch) |
 
 ## Development Notes
 
@@ -190,6 +202,7 @@ Two backends for AI-powered video generation using Wan2.x models:
 | `COMFYUI_URL` | ComfyUI server URL (default `http://127.0.0.1:8188`) |
 | `WANGP_URL` | WanGP Gradio UI URL (default `http://127.0.0.1:7860`, use Tailscale IP for remote GPU) |
 | `WANGP_API_URL` | WanGP REST sidecar URL (default `http://127.0.0.1:7861`, use Tailscale IP for remote GPU) |
+| `PHOSPHENE_URL` | Phosphene panel URL (local MLX video, default `http://127.0.0.1:8198`) |
 
 ## API Quota
 
