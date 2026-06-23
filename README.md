@@ -1,6 +1,8 @@
 # 🚀 유튜브 소재 발굴 도구
 
-**구독자 대비 조회수 비율(바이럴 비율)**로 강력한 콘텐츠 소재를 발굴하고, AI가 댓글을 분석해 대본 목차까지 자동 생성하는 단일 파일 웹 앱입니다.
+**구독자 대비 조회수 비율(바이럴 비율)**로 강력한 콘텐츠 소재를 발굴하고, AI가 댓글을 분석해 대본 목차까지 자동 생성하는 웹 앱입니다. 더불어 AI 이미지/영상 생성, 한글 자막 굽기 등 콘텐츠 제작 기능을 제공합니다.
+
+**📦 저장소**: https://github.com/david1005910/Youtube_matl_search_Mac1KHS
 
 ---
 
@@ -49,16 +51,40 @@
 
 ## 🛠️ 설치 및 실행
 
-별도 설치 없이 **브라우저에서 바로 실행**됩니다.
+먼저 저장소를 클론합니다.
 
 ```bash
-# 저장소 클론
-git clone https://github.com/david1005910/youtube_sub_search.git
-
-# index.html을 Chrome 등 브라우저로 열기
+git clone https://github.com/david1005910/Youtube_matl_search_Mac1KHS.git
+cd Youtube_matl_search_Mac1KHS
 ```
 
-또는 `index.html` 파일을 다운로드해 바로 열어도 됩니다.
+실행 방법은 두 가지입니다.
+
+### 방법 1 — 로컬 서버 (권장)
+
+`server.py`로 띄우면 API 키가 `.env` 파일에 저장되어 매번 다시 입력할 필요가 없고, AI 이미지/영상 생성 등 프록시 기능도 모두 동작합니다.
+
+```bash
+python3 server.py        # http://localhost:8765 접속
+```
+
+> macOS에서 SSL 인증서 오류가 나면 `pip3 install certifi` 후 다시 실행하세요.
+
+### 방법 2 — 브라우저에서 바로 열기
+
+별도 서버 없이 검색·분석·대본 기능만 빠르게 쓰고 싶을 때 사용합니다. (API 키는 브라우저 세션에만 저장되어 새로고침 시 다시 입력해야 합니다.)
+
+```bash
+open index.html          # 또는 index.html 파일을 더블클릭
+```
+
+### (선택) 자막 렌더러
+
+영상에 자막을 굽는 Remotion 렌더러는 별도 서버로 실행합니다.
+
+```bash
+cd remotion && npm install && npm start   # http://localhost:8766
+```
 
 ---
 
@@ -76,7 +102,7 @@ git clone https://github.com/david1005910/youtube_sub_search.git
 1. [Google AI Studio](https://aistudio.google.com/app/apikey) 접속
 2. **API 키 생성** (무료 티어 제공)
 
-> **보안 주의**: API 키는 브라우저 세션에만 저장되며, 외부로 전송되지 않습니다.
+> **키 저장 방식**: 로컬 서버 모드(방법 1)에서는 키가 프로젝트 루트의 `.env` 파일에 저장됩니다(`.gitignore`로 커밋 제외). 브라우저 직접 실행 모드(방법 2)에서는 브라우저 세션에만 저장됩니다. 두 경우 모두 키는 본인 기기/서버에서만 사용됩니다.
 
 ---
 
