@@ -125,6 +125,16 @@ def _send_json(handler, status, obj):
     handler.wfile.write(body)
 
 class Handler(SimpleHTTPRequestHandler):
+    def guess_type(self, path):
+        # 텍스트 정적 파일은 charset=utf-8 을 명시한다. (한국어 로케일에서
+        # 외부 .js 가 UTF-8 이 아닌 인코딩으로 디코딩돼 깨지는 문제 방지)
+        base = super().guess_type(path)
+        ctype = base[0] if isinstance(base, tuple) else base
+        if ctype in ('text/javascript', 'application/javascript',
+                     'text/html', 'text/css') and 'charset' not in ctype:
+            return f'{ctype}; charset=utf-8'
+        return base
+
     def do_GET(self):
         if self.path == '/api/config':
             _send_json(self, 200, load_env())
