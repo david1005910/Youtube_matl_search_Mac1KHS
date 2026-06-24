@@ -224,3 +224,14 @@ No automated test suite. Manual testing via browser:
 - `check-remotion.html` — Remotion server health check
 - `test-korean-validation.html` — Korean text validation tests
 - `test-video.html` — Video component testing
+
+### Phosphene integration — verified end-to-end (2026-06-24)
+
+The local Phosphene (MLX i2v) path was validated through the full chain, not just the backend:
+- **Backend proxies**: `/api/phosphene/health · upload · generate · status · file · concat` all exercised against the live panel (`:8198`). A real i2v render produced an MP4 (`output_path` under `mlx_outputs/`), served back via `/file`.
+- **Per-card button** (`🎬 Phosphene 영상 생성` → `generatePhospheneVideo`): driven from the real browser UI — uploads the card image, queues i2v, polls, and injects a `<video>` into the card. ~5 min/clip at 736×416 `balanced` on M-series.
+- **Batch button** (`전체 카드 영상 생성 + 합치기 (Phosphene)` → `generateAllPhospheneVideos`): two cards → sequential renders (single Phosphene queue serializes) → `ffmpeg` concat → browser download (`phosphene_concat_2scenes.mp4`, 10s = 2×5s).
+
+### Driving the app from Chrome AppleScript (test gotcha)
+
+`osascript … execute … javascript` runs in an **isolated world**: it can read/write the **DOM** (`document`, `getElementById`, `document.title`, element `.value`/`.click()`) but **cannot see the page's main-world JS globals** — `typeof window.someAppFn` always returns `undefined` even when the function is defined. Don't conclude the app is broken from that. To verify load, write an execution marker to `document.title` (shared). To invoke app code, dispatch a DOM `.click()` on an element whose **inline `onclick` attribute** runs in the main world. Functions that read IIFE-closure state (e.g. `generateAllPhospheneVideos` reads the closure `_imageCards`, not `window._imageCards`) can only be exercised through the real card-creation flow, or a temporary in-IIFE test hook that must be removed before commit. (Requires Chrome → View → Developer → *Allow JavaScript from Apple Events*.)
