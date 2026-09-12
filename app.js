@@ -1,49 +1,585 @@
 
-  // ─── JSON 안전 파서 (Gemini 응답 정제) ────────────
+  // ─── JSON 안전 파서 (Gemini 응답 정제 - 배열 및 객체 지원) ────────────
   function safeParseJSON(raw) {
+    if (!raw || typeof raw !== 'string') return null;
     // 1) ```json ... ``` 코드블록 추출
-    const codeBlock = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-    let src = codeBlock ? codeBlock[1] : raw;
+    const codeBlock = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    let src = (codeBlock ? codeBlock[1] : raw).trim();
 
-    // 2) 첫 번째 { 부터 마지막 } 까지 추출
-    const start = src.indexOf('{');
-    const end   = src.lastIndexOf('}');
-    if (start === -1 || end === -1) throw new Error('JSON 블록을 찾을 수 없습니다.');
-    src = src.slice(start, end + 1);
-
-    // 3) 직접 파싱 시도
+    // 2) 직접 파싱 시도
     try { return JSON.parse(src); } catch (_) {}
 
-    // 4) 일반적인 Gemini JSON 오류 수정
+    // 3) 시작과 끝 기호 ([ ... ] 또는 { ... }) 감지 및 추출
+    const firstBrace = src.indexOf('{');
+    const firstBracket = src.indexOf('[');
+    const lastBrace = src.lastIndexOf('}');
+    const lastBracket = src.lastIndexOf(']');
+
+    let start = -1;
+    let end = -1;
+    if (firstBracket !== -1 && (firstBrace === -1 || firstBracket < firstBrace)) {
+      start = firstBracket;
+      end = lastBracket;
+    } else if (firstBrace !== -1) {
+      start = firstBrace;
+      end = lastBrace;
+    }
+
+    if (start !== -1 && end !== -1 && end > start) {
+      src = src.slice(start, end + 1);
+    }
+    try { return JSON.parse(src); } catch (_) {}
+
+    // 4) 일반적인 Gemini JSON 오류 수정 (후행 콤마, 따옴표 없는 키 등)
     const fixed = src
-      .replace(/,\s*([}\]])/g, '$1')          // 후행 콤마 제거
-      .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":') // 따옴표 없는 키 수정
-      .replace(/:\s*'([^']*)'/g, ': "$1"')    // 단따옴표 → 이중따옴표
-      .replace(/[\x00-\x1f\x7f]/g, ' ') // 제어문자 제거
-      .replace(/\n/g, '\\n')                  // 문자열 내 줄바꿈 이스케이프
-      .replace(/\\n([^"]*?"[^"]*?\\n)/g, ' $1'); // 중복 이스케이프 정리
+      .replace(/,\s*([}\]])/g, '$1')              // 후행 콤마 제거
+      .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":')     // 따옴표 없는 키 수정
+      .replace(/:\s*'([^']*)'/g, ': "$1"')        // 단따옴표 → 이중따옴표
+      .replace(/[\x00-\x1f\x7f]/g, ' ');          // 제어문자 제거
 
     try { return JSON.parse(fixed); } catch (_) {}
-
-    // 5) 줄바꿈 이스케이프 없이 재시도 (큰 JSON용)
-    const fixed2 = src
-      .replace(/,\s*([}\]])/g, '$1')
-      .replace(/[\x00-\x1f\x7f]/g, ' ');
-    return JSON.parse(fixed2);
+    return null;
   }
 
   // ─── 상태 ───────────────────────────────────────
   let YOUTUBE_API_KEY    = '';
   let GEMINI_API_KEY     = '';
-  let GEMINI_MODEL       = 'gemini-2.5-flash';
+  let GEMINI_MODEL       = 'gemini-3.1-flash-lite';
   let TRANSCRIPT_API_KEY = '';
   let XAI_API_KEY        = '';
   let IMGBB_API_KEY      = '';
-  let STABILITY_API_KEY  = '';
-  let IMAGE_MODEL        = 'imagen';  // 'imagen', 'stability', or 'pollinations'
+  let IMAGE_MODEL        = 'comfyui';  // 'comfyui' (기본 로컬 AI), 'pollinations' (무료), 'local-sd', 'imagen', 'stability'
+  let SELECTED_IMAGE_STYLE = localStorage.getItem('yt_image_style') || 'none';
+  let _globalSubtitleOverlay = (localStorage.getItem('yt_global_subtitle') !== 'false'); // 기본값: ON (true)
+  window._globalSubtitleOverlay = _globalSubtitleOverlay;
   let _cachedAnalysis = null;   // 분석 결과 캐시
   let _cachedVideoTitle = '';
   let _flowBridgeReady = false;  // Flow Bridge Extension 상태
+
+  // ─── 🎨 이미지 스타일 프리셋 (12종 + 기본) ─────────────────────
+  const IMAGE_STYLE_PRESETS = {
+    'none': {
+      id: 'none',
+      name: '기본 (원본)',
+      icon: '🔘',
+      promptSuffix: '',
+      negativePrompt: ''
+    },
+    'cinematic': {
+      id: 'cinematic',
+      name: '실사 시네마틱',
+      icon: '🎬',
+      promptSuffix: 'photorealistic, highly detailed, 8k cinematic film still, shot on 35mm lens, depth of field, dramatic cinematic lighting, award-winning cinematography, photorealism',
+      negativePrompt: 'cartoon, anime, 3d render, painting, drawing, illustration, low quality, flat lighting'
+    },
+    'anime': {
+      id: 'anime',
+      name: '애니메이션/웹툰',
+      icon: '🎨',
+      promptSuffix: 'anime style, modern webtoon aesthetic, vibrant colors, clean crisp lineart, Makoto Shinkai lighting, Studio Ghibli inspired, 2D illustration, beautiful detailed anime art',
+      negativePrompt: 'photorealistic, real life photo, 3d render, noisy, messy lines'
+    },
+    'pixar3d': {
+      id: 'pixar3d',
+      name: '3D 픽사/디즈니',
+      icon: '🧸',
+      promptSuffix: '3D Disney Pixar animation style, cute character design, subsurface scattering, octane render, vivid color palette, soft rim lighting, Unreal Engine 5 render, cinematic 3D',
+      negativePrompt: 'flat 2d, sketchy, realistic photograph, gritty, harsh lines, ugly'
+    },
+    'cyberpunk': {
+      id: 'cyberpunk',
+      name: '사이버펑크',
+      icon: '🌆',
+      promptSuffix: 'cyberpunk aesthetic, glowing neon lights, futuristic high-tech metropolis, magenta and cyan color palette, holographic reflections, moody atmospheric volumetric fog, 8k',
+      negativePrompt: 'pastoral, natural daylight, historical, rustic, medieval, earthy'
+    },
+    'watercolor': {
+      id: 'watercolor',
+      name: '수채화아트',
+      icon: '🖌️',
+      promptSuffix: 'delicate watercolor painting, wet-on-wet technique, soft pigment bleeding, textured cold-press paper background, artistic brush strokes, pastel aesthetic, fine ink contours',
+      negativePrompt: 'photorealistic, 3d render, harsh neon, sharp digital lines, plastic'
+    },
+    'retro_film': {
+      id: 'retro_film',
+      name: '90s 레트로 필름',
+      icon: '📷',
+      promptSuffix: '90s vintage film photography, 35mm kodachrome, nostalgic film grain, warm analog color tones, subtle light leaks, disposable camera aesthetic, authentic retro look',
+      negativePrompt: 'modern digital photo, crisp 3d render, oversaturated modern digital, high-tech'
+    },
+    'pen_sketch': {
+      id: 'pen_sketch',
+      name: '펜&잉크 스케치',
+      icon: '✒️',
+      promptSuffix: 'hand-drawn pen and ink illustration, intricate cross-hatching, fine line art sketch, vintage engraving style, monochrome with subtle ink wash, high contrast artistic sketch',
+      negativePrompt: 'full color photograph, 3d render, smooth gradient, blur, photo'
+    },
+    'fantasy': {
+      id: 'fantasy',
+      name: '판타지 컨셉아트',
+      icon: '🧙‍♂️',
+      promptSuffix: 'epic fantasy concept art, highly detailed digital painting, magical ambient glow, Artstation trending, grand mythic scale, ethereal fantasy atmosphere, dramatic lighting',
+      negativePrompt: 'modern cityscape, photographic snapshot, low quality, flat, mundane'
+    },
+    'scifi_space': {
+      id: 'scifi_space',
+      name: '우주&SF',
+      icon: '🚀',
+      promptSuffix: 'epic sci-fi space aesthetic, deep cosmic nebula background, glowing interstellar starfield, futuristic high-tech architecture, breathtaking space vista, cinematic sci-fi lighting',
+      negativePrompt: 'historical, rustic, earthy landscape, medieval, mundane'
+    },
+    'vector': {
+      id: 'vector',
+      name: '미니멀 벡터',
+      icon: '📐',
+      promptSuffix: 'minimalist vector illustration, clean geometric shapes, modern flat design, sleek graphic design style, bold solid colors, crisp vector contours, elegant simplicity',
+      negativePrompt: 'complex photo texture, photographic realism, messy noise, 3d skin pore'
+    },
+    'clay': {
+      id: 'clay',
+      name: '점토아트',
+      icon: '🏺',
+      promptSuffix: 'claymation style, plasticine clay texture, handcrafted stop-motion sculpture aesthetic, subtle fingerprint marks on clay, Aardman inspired, soft studio miniature lighting',
+      negativePrompt: 'flat 2d drawing, sleek metal, sharp digital render, realistic human photo'
+    },
+    'whiteboard': {
+      id: 'whiteboard',
+      name: '화이트보드 애니메이션',
+      icon: '📋',
+      promptSuffix: 'whiteboard animation doodle style, bold black marker illustration on clean white background, minimalist marker sketch, educational explainer video graphic style, crisp clean lines',
+      negativePrompt: 'dark background, complex photographic gradient, 3d render, real photo'
+    }
+  };
+
+  window.IMAGE_STYLE_PRESETS = IMAGE_STYLE_PRESETS;
+  window.SELECTED_IMAGE_STYLE = SELECTED_IMAGE_STYLE;
+
+  // ─── 🎨 스타일별 전문 프롬프트 작성 지침 가이드 ─────────────────────
+  const STYLE_PROMPT_GUIDES = {
+    'cinematic': {
+      name: '실사 시네마틱',
+      guide: 'Ultra-photorealistic cinematic film still, shot on 35mm Arri Alexa or RED camera, anamorphic lens, shallow depth of field, dramatic cinematic lighting, authentic textures, natural skin details, 8K resolution, award-winning cinematography, photorealism.'
+    },
+    'anime': {
+      name: '애니메이션/웹툰',
+      guide: 'Japanese anime and Korean webtoon masterpiece aesthetic, vibrant dynamic colors, clean delicate lineart, Makoto Shinkai atmospheric lighting, Studio Ghibli inspired emotional scenery, high-end 2D key visual animation illustration.'
+    },
+    'pixar3d': {
+      name: '3D 픽사/디즈니',
+      guide: '3D Disney Pixar animation feature film style, lovable stylized character design, subsurface scattering on skin, Octane and Unreal Engine 5 render, warm vivid color palette, soft volumetric lighting, Pixar movie still.'
+    },
+    'cyberpunk': {
+      name: '사이버펑크',
+      guide: 'Cyberpunk 2077 aesthetic, futuristic high-tech dystopian cityscape, glowing neon signs in magenta, cyan, and violet, wet asphalt reflections, holographic displays, volumetric fog, moody dark atmosphere.'
+    },
+    'watercolor': {
+      name: '수채화아트',
+      guide: 'Artistic watercolor painting on textured cold-press grain paper, wet-on-wet pigment bleeding, soft color gradients, delicate ink contour outlines, expressive loose brushstrokes, serene pastel aesthetic.'
+    },
+    'retro_film': {
+      name: '90s 레트로 필름',
+      guide: 'Authentic 1990s vintage film photography, 35mm Kodachrome and Fujifilm tones, nostalgic film grain, warm analog color cast, subtle light leaks, disposable camera snapshot aesthetic, candid retro vibe.'
+    },
+    'pen_sketch': {
+      name: '펜&잉크 스케치',
+      guide: 'Detailed hand-drawn pen and black ink illustration, fine cross-hatching shading, vintage etching engraving style, stark high contrast, artistic monochrome line art on archival paper.'
+    },
+    'fantasy': {
+      name: '판타지 컨셉아트',
+      guide: 'Epic fantasy game concept art, trending on Artstation, glowing magical aura and runes, grand mythical architecture, atmospheric volumetric fog, dramatic hero lighting, intricate digital painting.'
+    },
+    'scifi_space': {
+      name: '우주&SF',
+      guide: 'Epic hard sci-fi and deep space aesthetic, vast swirling colorful nebula and starfield, giant futuristic interstellar spaceships and megastructures, sleek metallic materials, cinematic cosmic scale.'
+    },
+    'vector': {
+      name: '미니멀 벡터',
+      guide: 'Modern minimalist vector illustration, flat design with elegant geometric shapes, bold harmonious solid colors, clean crisp vector outlines, trendy tech editorial graphic style.'
+    },
+    'clay': {
+      name: '점토아트',
+      guide: 'Handcrafted plasticine claymation style, stop-motion animation aesthetic like Aardman, subtle real fingerprint textures on colored clay, soft studio macro lighting, miniature world charm.'
+    },
+    'whiteboard': {
+      name: '화이트보드 애니메이션',
+      guide: 'Whiteboard explainer animation style, bold black dry-erase marker drawing on clean bright white background, minimalist doodle illustration, clear educational infographic art.'
+    },
+    'none': {
+      name: '기본 (원본)',
+      guide: 'High quality, clear, balanced, natural visual representation of the scene.'
+    }
+  };
+  window.STYLE_PROMPT_GUIDES = STYLE_PROMPT_GUIDES;
+
+  // 스타일 프리셋 변경 및 UI 동기화
+  window.setImageStyle = (styleKey) => {
+    if (!IMAGE_STYLE_PRESETS[styleKey]) styleKey = 'none';
+    SELECTED_IMAGE_STYLE = styleKey;
+    window.SELECTED_IMAGE_STYLE = styleKey;
+    try { localStorage.setItem('yt_image_style', styleKey); } catch (e) {}
+
+    // 모달 상단 뱃지 갱신
+    const badge = document.getElementById('globalStyleBadge');
+    if (badge) {
+      const p = IMAGE_STYLE_PRESETS[styleKey];
+      badge.textContent = `${p.icon} ${p.name}`;
+      if (styleKey === 'none') {
+        badge.className = 'text-[10px] font-bold text-amber-300 bg-amber-950/60 border border-amber-700/50 px-1.5 py-0.5 rounded';
+      } else {
+        badge.className = 'text-[10px] font-bold text-cyan-300 bg-cyan-950/70 border border-cyan-500/60 px-1.5 py-0.5 rounded shadow-sm';
+      }
+    }
+
+    // 일괄 변환 버튼 라벨 갱신
+    const btnLabel = document.getElementById('transformStyleBtnLabel');
+    if (btnLabel && IMAGE_STYLE_PRESETS[styleKey]) {
+      const p = IMAGE_STYLE_PRESETS[styleKey];
+      btnLabel.textContent = `[${p.icon} ${p.name}] 맞춤 AI 프롬프트 일괄 재작성`;
+    }
+
+    // 스타일 프리셋 버튼 목록 재렌더링
+    window.renderStylePresets();
+
+    // 씬 카드별 드롭다운의 '전역 상속' 텍스트 갱신
+    const cards = (_imageCards && _imageCards.length > 0) ? _imageCards : (window._imageCards || []);
+    cards.forEach((_, i) => {
+      const sel = document.getElementById(`img-style-${i}`);
+      if (sel) {
+        const inheritOpt = sel.querySelector('option[value="inherit"]');
+        if (inheritOpt) {
+          inheritOpt.textContent = `🌐 전역 (${IMAGE_STYLE_PRESETS[styleKey].icon} ${IMAGE_STYLE_PRESETS[styleKey].name})`;
+        }
+      }
+    });
+  };
+
+  window.renderStylePresets = () => {
+    const container = document.getElementById('stylePresetContainer');
+    if (!container) return;
+
+    const onClass = 'flex-shrink-0 px-2 py-1 text-[11px] font-bold rounded-lg transition bg-gradient-to-r from-indigo-600 to-purple-600 text-white border border-indigo-400 shadow-md flex items-center gap-1';
+    const offClass = 'flex-shrink-0 px-2 py-1 text-[11px] font-semibold rounded-lg transition bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 hover:border-slate-500 flex items-center gap-1';
+
+    container.innerHTML = Object.entries(IMAGE_STYLE_PRESETS).map(([key, p]) => {
+      const isActive = (key === SELECTED_IMAGE_STYLE);
+      return `<button type="button" onclick="setImageStyle('${key}')" class="${isActive ? onClass : offClass}" title="${p.name}">
+        <span>${p.icon}</span>
+        <span>${p.name}</span>
+      </button>`;
+    }).join('');
+
+    const badge = document.getElementById('globalStyleBadge');
+    if (badge && IMAGE_STYLE_PRESETS[SELECTED_IMAGE_STYLE]) {
+      const p = IMAGE_STYLE_PRESETS[SELECTED_IMAGE_STYLE];
+      badge.textContent = `${p.icon} ${p.name}`;
+      if (SELECTED_IMAGE_STYLE === 'none') {
+        badge.className = 'text-[10px] font-bold text-amber-300 bg-amber-950/60 border border-amber-700/50 px-1.5 py-0.5 rounded';
+      } else {
+        badge.className = 'text-[10px] font-bold text-cyan-300 bg-cyan-950/70 border border-cyan-500/60 px-1.5 py-0.5 rounded shadow-sm';
+      }
+    }
+
+    const btnLabel = document.getElementById('transformStyleBtnLabel');
+    if (btnLabel && IMAGE_STYLE_PRESETS[SELECTED_IMAGE_STYLE]) {
+      const p = IMAGE_STYLE_PRESETS[SELECTED_IMAGE_STYLE];
+      btnLabel.textContent = `[${p.icon} ${p.name}] 맞춤 AI 프롬프트 일괄 재작성`;
+    }
+  };
+
+  window.getStyleName = (styleKey) => {
+    return IMAGE_STYLE_PRESETS[styleKey]?.name || '기본 (원본)';
+  };
+
+  window.applyStylePreset = (prompt, styleKey) => {
+    if (!prompt) return prompt;
+    const key = (styleKey && styleKey !== 'inherit') ? styleKey : SELECTED_IMAGE_STYLE;
+    const preset = IMAGE_STYLE_PRESETS[key];
+    if (!preset || key === 'none' || !preset.promptSuffix) {
+      return prompt;
+    }
+    const cleanPrompt = prompt.trim().replace(/,\s*$/, '');
+    return `${cleanPrompt}, ${preset.promptSuffix}`;
+  };
+
+  window.getStyleNegativePrompt = (styleKey) => {
+    const key = (styleKey && styleKey !== 'inherit') ? styleKey : SELECTED_IMAGE_STYLE;
+    const preset = IMAGE_STYLE_PRESETS[key];
+    const baseNeg = window.NO_TEXT_NEGATIVE || 'text, watermark, low quality, blurry';
+    if (!preset || key === 'none' || !preset.negativePrompt) {
+      return baseNeg;
+    }
+    return `${baseNeg}, ${preset.negativePrompt}`;
+  };
+
+  window.setCardStyle = (cardIdx, styleKey) => {
+    if (_imageCards && _imageCards[cardIdx]) {
+      _imageCards[cardIdx].stylePreset = styleKey;
+    }
+    if (window._imageCards && window._imageCards[cardIdx]) {
+      window._imageCards[cardIdx].stylePreset = styleKey;
+    }
+  };
+
+  // ─── 💬 자막 텍스트 오버레이 ON / OFF 관리 ─────────────────────────
+  window.toggleGlobalSubtitleOverlay = () => {
+    _globalSubtitleOverlay = !_globalSubtitleOverlay;
+    window._globalSubtitleOverlay = _globalSubtitleOverlay;
+    try { localStorage.setItem('yt_global_subtitle', _globalSubtitleOverlay ? 'true' : 'false'); } catch (e) {}
+    window.updateSubtitleToggleUI();
+
+    // 모든 카드의 자막 체크박스 및 상태 동기화
+    const cards = (_imageCards && _imageCards.length > 0) ? _imageCards : (window._imageCards || []);
+    cards.forEach((card, i) => {
+      card.subtitleDisabled = !_globalSubtitleOverlay;
+      const chk = document.getElementById(`sub-enabled-${i}`);
+      if (chk) chk.checked = _globalSubtitleOverlay;
+    });
+  };
+
+  window.updateSubtitleToggleUI = () => {
+    const btn = document.getElementById('globalSubtitleToggleBtn');
+    const icon = document.getElementById('globalSubIcon');
+    const label = document.getElementById('globalSubLabel');
+    if (!btn || !label) return;
+
+    if (_globalSubtitleOverlay) {
+      btn.className = 'bg-emerald-700/80 hover:bg-emerald-600 text-emerald-100 border border-emerald-500/60 text-[11px] font-bold px-3 py-1.5 rounded-lg transition shadow-sm flex items-center gap-1.5 whitespace-nowrap';
+      if (icon) icon.textContent = '💬';
+      label.textContent = '자막 텍스트 삽입: ON';
+    } else {
+      btn.className = 'bg-slate-700/90 hover:bg-slate-600 text-slate-300 border border-slate-600 text-[11px] font-bold px-3 py-1.5 rounded-lg transition shadow-sm flex items-center gap-1.5 whitespace-nowrap';
+      if (icon) icon.textContent = '🔇';
+      label.textContent = '자막 텍스트 삽입: OFF';
+    }
+  };
+
+  window.toggleCardSubEnabled = (idx, checked) => {
+    const cards = (_imageCards && _imageCards.length > 0) ? _imageCards : (window._imageCards || []);
+    if (cards[idx]) {
+      cards[idx].subtitleDisabled = !checked;
+    }
+  };
+
+  // 개별 생성된 이미지의 자막 즉시 On/Off 토글
+  window.toggleImageSubtitleOverlay = async (idx) => {
+    const imgEl = document.getElementById(`grok-img-el-${idx}`);
+    const dlEl = document.getElementById(`grok-dl-${idx}`);
+    const remotionBtn = document.getElementById(`grok-remotion-${idx}`);
+    const toggleBtn = document.getElementById(`sub-toggle-btn-${idx}`);
+    if (!imgEl || !imgEl.src || imgEl.src === window.location.href) return;
+
+    const rawSrc = imgEl.dataset.rawSrc || imgEl.src;
+    imgEl.dataset.rawSrc = rawSrc;
+
+    const hasSub = imgEl.dataset.hasSubtitle === 'true';
+
+    if (hasSub) {
+      // 자막 OFF -> 원본(rawSrc) 복원
+      imgEl.src = rawSrc;
+      dlEl.href = rawSrc;
+      if (remotionBtn) remotionBtn.dataset.src = rawSrc;
+      imgEl.dataset.hasSubtitle = 'false';
+      if (toggleBtn) {
+        toggleBtn.textContent = '💬 자막 삽입';
+        toggleBtn.className = 'text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold px-3 py-1 rounded-lg transition';
+      }
+    } else {
+      // 자막 ON -> 자막 텍스트 오버레이 합성
+      const subEl = document.getElementById(`img-sub-${idx}`);
+      let subText = (subEl?.value ?? _imageCards[idx]?.subtitles ?? '').trim();
+      if (!subText) {
+        alert('삽입할 자막 텍스트가 없습니다. 아래 [자막 텍스트] 입력란을 작성해주세요.');
+        return;
+      }
+      if (toggleBtn) toggleBtn.textContent = '⏳ 자막 합성 중…';
+      try {
+        subText = await translateSubtitleToKorean(subText);
+        if (window.validateKoreanText && subText) subText = window.validateKoreanText(subText);
+        const subMax = parseInt(document.getElementById(`sub-max-${idx}`)?.value || '30', 10);
+        const finalSrc = await overlaySubtitle(rawSrc, subText, subMax);
+        imgEl.src = finalSrc;
+        dlEl.href = finalSrc;
+        if (remotionBtn) remotionBtn.dataset.src = finalSrc;
+        imgEl.dataset.hasSubtitle = 'true';
+        if (toggleBtn) {
+          toggleBtn.textContent = '💬 자막 제거';
+          toggleBtn.className = 'text-xs bg-indigo-700/80 hover:bg-indigo-600 text-indigo-100 font-bold px-3 py-1 rounded-lg transition';
+        }
+      } catch (err) {
+        alert('자막 합성 실패: ' + err.message);
+        if (toggleBtn) toggleBtn.textContent = '💬 자막 토글';
+      }
+    }
+  };
+
+  // ─── ✨ 단일 카드에 선택된 스타일에 맞는 AI 영문 프롬프트 자동 작성 ───
+  window.generateStylePromptForCard = async (idx, targetStyleKey = null, showVisual = true) => {
+    const cards = (_imageCards && _imageCards.length > 0) ? _imageCards : (window._imageCards || []);
+    const card = cards[idx];
+    if (!card) return;
+
+    const styleKey = targetStyleKey || document.getElementById(`img-style-${idx}`)?.value || card.stylePreset || SELECTED_IMAGE_STYLE || 'cinematic';
+    const effectiveKey = (styleKey === 'inherit') ? SELECTED_IMAGE_STYLE : styleKey;
+    const styleInfo = IMAGE_STYLE_PRESETS[effectiveKey] || IMAGE_STYLE_PRESETS['none'];
+    const guide = STYLE_PROMPT_GUIDES[effectiveKey]?.guide || styleInfo.promptSuffix || '';
+
+    const btn = document.getElementById(`ai-prompt-btn-${idx}`);
+    const origText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ 작성 중…'; }
+
+    const cut = (document.getElementById(`img-cut-${idx}`)?.value || card.cutDescription || '').trim();
+    const curPrompt = (document.getElementById(`img-prompt-${idx}`)?.value || card.prompt || '').trim();
+    const sub = (document.getElementById(`img-sub-${idx}`)?.value || card.subtitles || '').trim();
+    const title = card.chapterTitle || `장면 ${idx + 1}`;
+
+    try {
+      const singleReq = `당신은 AI 이미지 생성(Midjourney, Flux, Stable Diffusion, DALL-E) 프롬프트 전문 엔지니어입니다.
+아래 장면 정보에 맞추어, **[${styleInfo.name}]** 스타일에 최적화된 영문 이미지 생성 프롬프트를 1개 작성하세요.
+
+[선택된 스타일 가이드]
+스타일: ${styleInfo.name}
+렌더링 및 미학 특성: ${guide}
+
+[장면 정보]
+- 챕터: ${title}
+- 컷 묘사: ${cut || curPrompt || title}
+- 자막/메시지: ${sub}
+
+[작성 규칙]
+1. 해당 스타일의 화풍, 조명, 구도, 피사체 질감, 색상 팔레트가 극대화된 60~120단어의 완성도 높은 영문 프롬프트 1개만 작성하세요.
+2. 텍스트/문자 관련 단어(text, words, letters, watermark, typography, logo)는 절대 포함하지 마세요.
+3. 한국/동양인 인물(Korean/East Asian) 컨텍스트가 자연스럽게 유지되도록 하세요.
+4. 부연 설명이나 마크다운 없이 오직 완성된 영어 프롬프트 본문만 출력하세요.`;
+
+      const raw = await callGemini(singleReq);
+      const cleaned = raw.replace(/^```[a-z]*\n?|```$/gm, '').replace(/^"|"$/g, '').trim();
+      if (cleaned && cleaned.length > 10) {
+        card.prompt = cleaned;
+        const ta = document.getElementById(`img-prompt-${idx}`);
+        if (ta) {
+          ta.value = cleaned;
+          if (showVisual) {
+            ta.classList.add('border-indigo-500', 'bg-indigo-950/40');
+            setTimeout(() => ta.classList.remove('bg-indigo-950/40'), 1500);
+          }
+        }
+      }
+    } catch (e) {
+      console.error(`장면 ${idx + 1} 스타일 프롬프트 생성 실패:`, e);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = origText || '🪄 AI 맞춤 작성'; }
+    }
+  };
+
+  // ─── ✨ 모든 장면에 선택된 스타일에 맞는 AI 영문 프롬프트 일괄 재작성 ───
+  window.transformAllPromptsForStyle = async (styleKey = null) => {
+    const cards = (_imageCards && _imageCards.length > 0) ? _imageCards : (window._imageCards || []);
+    if (!cards.length) {
+      alert('변환할 장면 카드가 없습니다.');
+      return;
+    }
+    const key = styleKey || SELECTED_IMAGE_STYLE || 'cinematic';
+    const styleInfo = IMAGE_STYLE_PRESETS[key] || IMAGE_STYLE_PRESETS['none'];
+    const guide = STYLE_PROMPT_GUIDES[key]?.guide || styleInfo.promptSuffix || '';
+
+    const btn = document.getElementById('transformStyleAllBtn');
+    const origBtnText = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span>⏳</span><span>[${styleInfo.name}] 프롬프트 AI 일괄 작성 중…</span>`;
+    }
+
+    try {
+      const scenesList = cards.map((c, i) => {
+        const cut = (document.getElementById(`img-cut-${i}`)?.value || c.cutDescription || '').trim();
+        const curPrompt = (document.getElementById(`img-prompt-${i}`)?.value || c.prompt || '').trim();
+        const sub = (document.getElementById(`img-sub-${i}`)?.value || c.subtitles || '').trim();
+        const title = c.chapterTitle || `장면 ${i + 1}`;
+        return `[장면 ${i + 1}]
+- 챕터: ${title}
+- 장면 내용/컷 묘사: ${cut || curPrompt || title}
+- 자막/메시지: ${sub}`;
+      }).join('\n\n');
+
+      const promptText = `당신은 세계 최고 수준의 AI 이미지 생성(Midjourney, Flux, Stable Diffusion, DALL-E) 프롬프트 엔지니어입니다.
+아래 총 ${cards.length}개의 각 장면에 대해, 선택된 **[${styleInfo.name}]** 스타일에 완벽히 특화된 고품질 영문 이미지 생성 프롬프트를 작성해주세요.
+
+[선택된 스타일 가이드]
+스타일: ${styleInfo.name}
+스타일 특성 및 렌더링 지침: ${guide}
+
+[작성 규칙]
+1. 각 장면마다 해당 스타일의 미학(화풍, 피사체 질감, 조명, 구도, 색감, 렌더링 엔진 특성)을 완벽히 살린 60~120단어의 영문 프롬프트를 작성하세요.
+2. 텍스트/글자/워터마크를 유발하는 단어(text, letters, words, logo, typography)는 절대 넣지 마세요.
+3. 한국/동양인 맥락(Korean/East Asian)을 자연스럽게 반영하세요.
+4. 반드시 아래 JSON 배열 형식으로만 출력하세요 (설명, 마크다운 없이 순수 JSON):
+
+[
+  {
+    "sceneIndex": 1,
+    "prompt": "English image prompt tailored for ${styleInfo.name} style..."
+  }
+]
+
+[장면 목록]
+${scenesList}`;
+
+      const raw = await callGemini(promptText, { jsonMode: true });
+      let parsed = safeParseJSON(raw);
+      if (!Array.isArray(parsed) && parsed && typeof parsed === 'object') {
+        parsed = parsed.scenes || parsed.cards || parsed.items || Object.values(parsed);
+      }
+      let updatedCount = 0;
+
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        parsed.forEach(item => {
+          if (!item || typeof item !== 'object') return;
+          let idx = -1;
+          if (item.sceneIndex !== undefined || item.scene !== undefined || item.index !== undefined) {
+            const rawNum = item.sceneIndex ?? item.scene ?? item.index;
+            const num = typeof rawNum === 'number' ? rawNum : parseInt(String(rawNum).replace(/[^\d]/g, ''), 10);
+            if (!isNaN(num) && num > 0 && num <= cards.length) idx = num - 1;
+          }
+          const newPrompt = (item.prompt || item.imagePrompt || '').trim();
+          if (idx >= 0 && idx < cards.length && newPrompt) {
+            cards[idx].prompt = newPrompt;
+            const ta = document.getElementById(`img-prompt-${idx}`);
+            if (ta) {
+              ta.value = newPrompt;
+              ta.classList.add('border-indigo-500', 'bg-indigo-950/40');
+              setTimeout(() => ta.classList.remove('bg-indigo-950/40'), 1500);
+            }
+            updatedCount++;
+          }
+        });
+      }
+
+      // 파싱 실패 또는 누락 카드 개별 보완
+      if (updatedCount < cards.length) {
+        for (let i = 0; i < cards.length; i++) {
+          if (!parsed || !Array.isArray(parsed) || !parsed.some(p => (p.sceneIndex - 1) === i)) {
+            await window.generateStylePromptForCard(i, key, false);
+            updatedCount++;
+          }
+        }
+      }
+
+      const statusMsg = document.getElementById('styleTransformStatus');
+      if (statusMsg) {
+        statusMsg.textContent = `✨ ${updatedCount}개 장면에 [${styleInfo.icon} ${styleInfo.name}] 맞춤 프롬프트 작성 완료!`;
+        statusMsg.classList.remove('hidden');
+        setTimeout(() => statusMsg.classList.add('hidden'), 4000);
+      }
+    } catch (err) {
+      console.error('스타일 프롬프트 일괄 변환 실패:', err);
+      alert('프롬프트 변환 중 오류가 발생했습니다: ' + err.message);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = origBtnText || `<span>🪄</span><span>[${styleInfo.icon} ${styleInfo.name}] 맞춤 AI 프롬프트 일괄 재작성</span>`;
+      }
+    }
+  };
 
   const YT_BASE = '/api/proxy/youtube'; // 서버 프록시 경유 (CORS 우회)
   const SHORT_MAX_SEC = 180;    // 3분 기준
@@ -72,7 +608,7 @@
       const cfg = await res.json();
       YOUTUBE_API_KEY    = cfg.YOUTUBE_API_KEY    || '';
       GEMINI_API_KEY     = cfg.GEMINI_API_KEY     || '';
-      GEMINI_MODEL       = cfg.GEMINI_MODEL       || 'gemini-2.5-flash';
+      GEMINI_MODEL       = cfg.GEMINI_MODEL       || 'gemini-3.1-flash-lite';
       TRANSCRIPT_API_KEY = cfg.TRANSCRIPT_API_KEY || '';
       XAI_API_KEY        = cfg.XAI_API_KEY        || '';
       IMGBB_API_KEY      = cfg.IMGBB_API_KEY       || '';
@@ -90,6 +626,60 @@
       set('apiStatusTr',  !!TRANSCRIPT_API_KEY,  'Transcript');
       set('apiStatusXai', !!XAI_API_KEY,         'xAI');
       set('apiStatusStability', !!STABILITY_API_KEY, 'Stability');
+
+      // Local SD (MPS / GPU) 상태 확인
+      fetch('/api/proxy/local-sd-status')
+        .then(r => r.json())
+        .then(sd => {
+          const el = document.getElementById('apiStatusLocalSd');
+          if (el) {
+            if (sd.online) {
+              el.textContent = `✅ Local SD (${sd.device ? sd.device.toUpperCase() : 'MPS'})`;
+              el.className   = 'text-xs text-green-400 font-semibold';
+            } else {
+              el.textContent = '⚪ Local SD (대기)';
+              el.className   = 'text-xs text-slate-500';
+            }
+          }
+        })
+        .catch(() => {});
+
+      // ComfyUI (로컬 AI) 상태 확인
+      fetch('/api/comfyui/health')
+        .then(r => r.json())
+        .then(res => {
+          const el = document.getElementById('apiStatusComfyui');
+          if (el) {
+            if (res.ok) {
+              el.textContent = '✅ ⚙️ ComfyUI (연결됨)';
+              el.className   = 'text-xs text-green-400 font-semibold';
+            } else {
+              el.textContent = '⚪ ⚙️ ComfyUI (미실행)';
+              el.className   = 'text-xs text-slate-500';
+            }
+          }
+        })
+        .catch(() => {});
+
+      // Phosphene (로컬 MLX 비디오 생성) 상태 확인
+      fetch('/api/phosphene/health')
+        .then(r => r.json())
+        .then(res => {
+          const el = document.getElementById('apiStatusPhosphene');
+          if (el) {
+            if (res.ok) {
+              el.textContent = '✅ 🎬 Phosphene (연결됨)';
+              el.className   = 'text-xs text-green-400 font-semibold';
+            } else {
+              el.textContent = '⚪ 🎬 Phosphene (대기)';
+              el.className   = 'text-xs text-slate-500';
+            }
+          }
+        })
+        .catch(() => {});
+
+      // 스타일 프리셋 UI 초기화
+      if (window.renderStylePresets) window.renderStylePresets();
     } catch (e) {
       const bar = document.getElementById('apiStatusBar');
       if (bar) bar.innerHTML = `<span class="text-xs text-red-400">⚠️ 서버 미연결 — python3 server.py 실행 후 새로고침</span>`;
@@ -460,34 +1050,76 @@
   }
 
   // ─── Gemini REST API 공통 호출 ──────────────────
-  async function callGemini(prompt, { jsonMode = false } = {}) {
-    const useProxy = window.location.protocol === 'http:' || window.location.hostname === 'localhost';
-    const reqBody  = {
+  async function callGemini(prompt, options = {}) {
+    const jsonMode = typeof options === 'object' ? (options.jsonMode || false) : false;
+    const retries  = (typeof options === 'object' && options.retries) ? options.retries : 3;
+    const apiKey   = GEMINI_API_KEY || window.GEMINI_API_KEY || '';
+    const useProxy = window.location.protocol === 'http:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+    const reqBody = {
       contents: [{ parts: [{ text: prompt }] }],
-      ...(jsonMode ? { generationConfig: { responseMimeType: 'application/json' } } : {})
+      generationConfig: {
+        ...(jsonMode ? { responseMimeType: 'application/json' } : {}),
+        temperature: options.temperature || 0.7,
+        maxOutputTokens: options.maxTokens || 8192,
+        topP: options.topP || 0.95,
+        topK: options.topK || 40
+      }
     };
-    let res;
-    if (useProxy) {
-      res = await fetch('/api/proxy/gemini', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reqBody)
-      });
-    } else {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-      res = await fetch(url, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(reqBody)
-      });
+
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        let res;
+        if (useProxy) {
+          res = await fetch('/api/proxy/gemini', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(reqBody)
+          });
+        } else {
+          // Direct fallback models
+          const models = [GEMINI_MODEL || 'gemini-3.1-flash-lite', 'gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-3.5-flash-lite'];
+          let lastDirectError = null;
+          for (const m of models) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+            const dRes = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(reqBody)
+            });
+            if (dRes.ok) {
+              res = dRes;
+              break;
+            } else {
+              const err = await dRes.json().catch(() => ({}));
+              lastDirectError = err?.error?.message || `HTTP ${dRes.status}`;
+            }
+          }
+          if (!res) throw new Error(lastDirectError || 'Gemini 호출 실패');
+        }
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          const errMsg = err?.error?.message || `HTTP ${res.status}`;
+          if (res.status === 429 && attempt < retries - 1) {
+            console.warn(`Gemini 429 rate limit hit, retrying in ${(attempt + 1) * 2}s...`);
+            await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+            continue;
+          }
+          throw new Error(errMsg);
+        }
+
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) throw new Error('AI 응답이 비어 있습니다.');
+        return text;
+      } catch (e) {
+        if (attempt >= retries - 1) throw e;
+        await new Promise(r => setTimeout(r, (attempt + 1) * 1500));
+      }
     }
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err?.error?.message || `HTTP ${res.status}`);
-    }
-    const data = await res.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new Error('AI 응답이 비어 있습니다.');
-    return text;
   }
+  window.callGemini = callGemini;
 
   // ─── Gemini: 댓글 분석 (JSON) ───────────────────
   async function callGeminiAnalysis(title, comments) {
@@ -769,82 +1401,135 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
     }
   };
 
-  // 썸네일 생성 함수
-  window.generateThumbnailFromConcept = async () => {
-    const conceptEl = document.getElementById('thumbnailConceptText');
-    const promptEl = document.getElementById('thumbnailImagePromptText');
-    const spinnerEl = document.getElementById('thumbnailSpinner');
-    const resultEl = document.getElementById('thumbnailResult');
-    const statusEl = document.getElementById('thumbnailStatus');
-    
-    if (!conceptEl || !promptEl) return;
-    
-    const concept = conceptEl.textContent;
-    const prompt = promptEl?.textContent || concept;
-    
-    if (!GEMINI_API_KEY) {
-      alert('Gemini API 키가 필요합니다.');
-      return;
+  // ⚙️ ComfyUI Text-to-Image 공통 함수
+  async function generateComfyUIImage(prompt, options = {}) {
+    const width = options.width || 768;
+    const height = options.height || 448;
+    const steps = options.steps || 20;
+    const cfg = options.cfg || 7.0;
+    const negativePrompt = options.negative_prompt || 'blurry, low quality, distorted, extra limbs, bad anatomy, ugly, watermark, text, signature';
+    const onProgress = options.onProgress || (() => {});
+
+    // 1. Health check
+    onProgress('⚙️ ComfyUI 로컬 서버 확인 중…');
+    const healthRes = await fetch('/api/comfyui/health');
+    const healthData = await healthRes.json();
+    if (!healthData.ok) {
+      throw new Error('ComfyUI 서버(포트 8188)가 실행 중이지 않습니다.');
     }
-    
-    spinnerEl?.classList.remove('hidden');
-    resultEl?.classList.add('hidden');
-    
+
+    // 2. Check available checkpoints
+    let ckpt = 'v1-5-pruned-emaonly.safetensors';
     try {
-      // 영어 프롬프트가 없으면 한국어 컨셉을 영어로 번역
-      let englishPrompt = prompt;
-      if (!promptEl?.textContent || /[가-힣]/.test(prompt)) {
-        const translated = await callGemini(
-          `Translate this Korean thumbnail concept to English for AI image generation. Make it detailed and visual. Only output the English translation:\n\n${concept}`
-        );
-        englishPrompt = translated.trim();
+      const ckptRes = await fetch('/api/proxy/comfyui/object_info/CheckpointLoaderSimple');
+      if (ckptRes.ok) {
+        const ckptData = await ckptRes.json();
+        const list = ckptData?.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0];
+        if (Array.isArray(list) && list.length > 0) {
+          // Mac GPU 속도를 위해 SD 1.5 우선 선택
+          const v15 = list.find(name => name.includes('v1-5') || name.includes('1.5') || name.includes('pruned'));
+          ckpt = v15 || list[0];
+        }
       }
-      
-      // 썸네일 스타일 추가
-      englishPrompt += ', YouTube thumbnail style, eye-catching, high contrast, professional photography';
-      
-      // Gemini Imagen으로 이미지 생성
-      const imageResponse = await fetch('/api/proxy/gemini-image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: window.applyNoText(englishPrompt),
-          width: 1280,
-          height: 720,
-          model: 'imagen-4'
-        })
-      });
-      
-      if (!imageResponse.ok) {
-        const errorData = await imageResponse.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP ${imageResponse.status}`);
-      }
-      
-      const imageData = await imageResponse.json();
-      const imageBase64 = imageData.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      
-      if (!imageBase64) {
-        throw new Error('이미지 데이터를 받지 못했습니다.');
-      }
-      
-      const imageUrl = `data:image/jpeg;base64,${imageBase64}`;
-      
-      // 결과 표시
-      const imgEl = document.getElementById('thumbnailImg');
-      const dlEl = document.getElementById('thumbnailDl');
-      
-      if (imgEl) imgEl.src = imageUrl;
-      if (dlEl) dlEl.href = imageUrl;
-      if (statusEl) statusEl.textContent = '✅ 썸네일 생성 완료!';
-      
-      spinnerEl?.classList.add('hidden');
-      resultEl?.classList.remove('hidden');
-      
-    } catch (error) {
-      if (statusEl) statusEl.textContent = `❌ 오류: ${error.message}`;
-      spinnerEl?.classList.add('hidden');
-      console.error('썸네일 생성 오류:', error);
+    } catch (e) {
+      console.warn('Failed to get checkpoint info:', e);
     }
+
+    // 3. Construct workflow
+    const seed = Math.floor(Math.random() * 1000000000);
+    const workflow = {
+      "4": { "class_type": "CheckpointLoaderSimple", "inputs": { "ckpt_name": ckpt } },
+      "5": { "class_type": "EmptyLatentImage", "inputs": { "width": width, "height": height, "batch_size": 1 } },
+      "6": { "class_type": "CLIPTextEncode", "inputs": { "text": prompt, "clip": ["4", 1] } },
+      "7": { "class_type": "CLIPTextEncode", "inputs": { "text": negativePrompt, "clip": ["4", 1] } },
+      "3": {
+        "class_type": "KSampler",
+        "inputs": {
+          "seed": seed,
+          "steps": steps,
+          "cfg": cfg,
+          "sampler_name": "euler",
+          "scheduler": "normal",
+          "denoise": 1.0,
+          "model": ["4", 0],
+          "positive": ["6", 0],
+          "negative": ["7", 0],
+          "latent_image": ["5", 0]
+        }
+      },
+      "8": { "class_type": "VAEDecode", "inputs": { "samples": ["3", 0], "vae": ["4", 2] } },
+      "9": { "class_type": "SaveImage", "inputs": { "filename_prefix": "ComfyUI_Thumbnail", "images": ["8", 0] } }
+    };
+
+    onProgress('⚙️ ComfyUI 작업 큐 등록 중…');
+    const promptRes = await fetch('/api/proxy/comfyui/prompt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: workflow })
+    });
+
+    if (!promptRes.ok) {
+      const errData = await promptRes.json().catch(() => ({}));
+      throw new Error(errData.error || `ComfyUI 큐 등록 실패 (${promptRes.status})`);
+    }
+
+    const promptData = await promptRes.json();
+    const promptId = promptData.prompt_id;
+    if (!promptId) throw new Error('ComfyUI 작업 ID를 수신하지 못했습니다.');
+
+    // 4. Poll history
+    let attempts = 0;
+    const maxAttempts = 120; // 2 minutes
+    while (attempts < maxAttempts) {
+      await new Promise(r => setTimeout(r, 1000));
+      attempts++;
+      onProgress(`⏳ ComfyUI 로컬 이미지 렌더링 중… (${attempts}초)`);
+
+      try {
+        const histRes = await fetch(`/api/proxy/comfyui/history?prompt_id=${promptId}`);
+        if (!histRes.ok) continue;
+        const history = await histRes.json();
+        if (history[promptId]) {
+          const outputs = history[promptId].outputs;
+          for (const nid in outputs) {
+            if (outputs[nid].images && outputs[nid].images.length > 0) {
+              const imgInfo = outputs[nid].images[0];
+              onProgress('✅ ComfyUI 이미지 수신 중…');
+              const viewUrl = `/api/proxy/comfyui/view?filename=${encodeURIComponent(imgInfo.filename)}&subfolder=${encodeURIComponent(imgInfo.subfolder || '')}&type=${encodeURIComponent(imgInfo.type || 'output')}`;
+              const viewRes = await fetch(viewUrl);
+              if (!viewRes.ok) throw new Error('ComfyUI 이미지 다운로드 실패');
+              const blob = await viewRes.blob();
+              return await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('ComfyUI polling error:', e);
+      }
+    }
+    throw new Error('ComfyUI 이미지 생성 대기 시간 초과');
+  }
+
+  // 썸네일 엔진 설정 (기본값: ⚙️ ComfyUI 로컬 AI)
+  let _currentThumbnailEngine = 'comfyui';
+
+  window.setThumbnailEngine = (engine) => {
+    _currentThumbnailEngine = engine;
+    ['comfyui', 'pollinations', 'imagen', 'stability'].forEach(eng => {
+      const btn = document.getElementById(`tnEngine${eng.charAt(0).toUpperCase() + eng.slice(1)}`);
+      if (btn) {
+        if (eng === engine) {
+          btn.className = 'px-2.5 py-1 rounded font-bold transition text-pink-200 bg-pink-800/80 shadow-sm border border-pink-500/50';
+        } else {
+          btn.className = 'px-2.5 py-1 rounded font-medium transition text-slate-400 hover:text-slate-200 border border-transparent';
+        }
+      }
+    });
   };
 
   let _cachedOutline = null;
@@ -900,39 +1585,84 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
       </div>
 
       <!-- 썸네일 -->
-      <div class="script-section">
-        <div class="flex items-center justify-between gap-2 mb-2 flex-wrap">
-          <h4 class="text-pink-300 mb-0">🖼️ 썸네일 컨셉</h4>
-          <button onclick="generateThumbnailFromConcept()"
-            class="text-[11px] bg-gradient-to-r from-pink-700 to-rose-700 hover:from-pink-600 hover:to-rose-600
-                   text-white font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 flex-shrink-0">
-            🎨 썸네일 이미지 생성
-          </button>
-        </div>
-        <p id="thumbnailConceptText" class="text-slate-300">${escHtml(data.thumbnailConcept)}</p>
-        ${data.thumbnailImagePrompt ? `
-        <div class="mt-2 p-2.5 bg-slate-800/60 rounded-lg border border-pink-900/40">
-          <p class="text-[10px] text-pink-400 font-bold mb-1">🖼️ 썸네일 AI 프롬프트 (영어)</p>
-          <p id="thumbnailImagePromptText" class="text-[11px] text-slate-400 leading-relaxed">${escHtml(data.thumbnailImagePrompt)}</p>
-        </div>` : ''}
-        <!-- 생성된 썸네일 -->
-        <div id="thumbnailResult" class="hidden mt-3 space-y-2">
-          <img id="thumbnailImg" class="w-full rounded-xl border border-pink-800/50 shadow-lg" alt="생성된 썸네일" />
-          <div class="flex gap-2 flex-wrap">
-            <a id="thumbnailDl" download="thumbnail.png"
-              class="text-xs bg-slate-700 hover:bg-slate-600 text-pink-300 font-bold px-3 py-1.5 rounded-lg transition">
-              ⬇ 썸네일 다운로드
-            </a>
-            <button onclick="generateThumbnailFromConcept()"
-              class="text-xs bg-pink-900/50 hover:bg-pink-800 text-pink-300 font-bold px-3 py-1.5 rounded-lg transition">
-              🔄 재생성
+      <div class="script-section bg-gradient-to-br from-pink-950/30 via-slate-800/60 to-slate-800/80 border border-pink-700/40 rounded-xl p-4 shadow-lg">
+        <div class="flex items-center justify-between gap-2 mb-3 flex-wrap">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">🖼️</span>
+            <div>
+              <h4 class="text-pink-300 font-bold mb-0 text-sm">썸네일 기획 &amp; AI 이미지 생성</h4>
+              <p class="text-[11px] text-slate-400">CTR 최적화 16:9 유튜브 썸네일 이미지 자동 생성 (1280×720)</p>
+            </div>
+          </div>
+          <!-- 이미지 엔진 선택기 및 생성 버튼 -->
+          <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex bg-slate-900/90 rounded-lg p-0.5 border border-slate-700 text-xs">
+              <button type="button" onclick="setThumbnailEngine('comfyui')" id="tnEngineComfyui"
+                class="px-2.5 py-1 rounded font-bold transition text-pink-200 bg-pink-800/80 shadow-sm border border-pink-500/50">
+                ⚙️ ComfyUI (로컬 AI)
+              </button>
+              <button type="button" onclick="setThumbnailEngine('pollinations')" id="tnEnginePollinations"
+                class="px-2.5 py-1 rounded font-medium transition text-slate-400 hover:text-slate-200 border border-transparent">
+                🌸 Pollinations (무료 Flux)
+              </button>
+              <button type="button" onclick="setThumbnailEngine('imagen')" id="tnEngineImagen"
+                class="px-2.5 py-1 rounded font-medium transition text-slate-400 hover:text-slate-200 border border-transparent">
+                🌈 Gemini Imagen
+              </button>
+              <button type="button" onclick="setThumbnailEngine('stability')" id="tnEngineStability"
+                class="px-2.5 py-1 rounded font-medium transition text-slate-400 hover:text-slate-200 border border-transparent">
+                🎨 Stable Diffusion
+              </button>
+            </div>
+            <button onclick="generateThumbnailFromConcept()" id="thumbnailGenBtn"
+              class="text-xs bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500
+                     text-white font-bold px-3.5 py-1.5 rounded-lg transition shadow-md flex items-center gap-1.5 flex-shrink-0">
+              🎨 썸네일 이미지 생성
             </button>
           </div>
-          <p id="thumbnailStatus" class="text-[11px] text-slate-400"></p>
         </div>
-        <div id="thumbnailSpinner" class="hidden flex items-center gap-2 mt-2">
-          <div class="spinner" style="width:16px;height:16px;border-width:2px;border-top-color:#ec4899"></div>
-          <span class="text-[11px] text-pink-400">썸네일 생성 중…</span>
+
+        <div class="bg-slate-800/70 rounded-lg p-3 border border-pink-900/30 mb-2">
+          <p class="text-[11px] text-pink-300 font-semibold mb-1">💡 썸네일 기획 컨셉</p>
+          <p id="thumbnailConceptText" class="text-xs text-slate-200 leading-relaxed">${escHtml(data.thumbnailConcept || '')}</p>
+        </div>
+
+        <div class="bg-slate-800/70 rounded-lg p-3 border border-slate-700/60 mb-2">
+          <div class="flex justify-between items-center mb-1">
+            <p class="text-[10px] text-pink-400 font-bold">🖼️ 썸네일 AI 프롬프트 (영어)</p>
+            <span class="text-[10px] text-slate-400">직접 수정 가능</span>
+          </div>
+          <textarea id="thumbnailImagePromptText" rows="2"
+            class="w-full bg-slate-900/90 border border-slate-700 rounded p-2 text-[11px] text-slate-300 focus:outline-none focus:border-pink-500 leading-relaxed">${escHtml(data.thumbnailImagePrompt || '')}</textarea>
+        </div>
+
+        <!-- 썸네일 로딩 스피너 -->
+        <div id="thumbnailSpinner" class="hidden flex items-center gap-2 p-3 bg-pink-950/30 border border-pink-900/50 rounded-lg mt-3">
+          <div class="spinner" style="width:18px;height:18px;border-width:2px;border-top-color:#ec4899"></div>
+          <span id="thumbnailSpinnerText" class="text-xs text-pink-300 font-medium">AI 썸네일 생성 중입니다… (잠시만 기다려주세요)</span>
+        </div>
+
+        <!-- 생성된 썸네일 결과 -->
+        <div id="thumbnailResult" class="hidden mt-3 space-y-2 bg-slate-900/90 p-3 rounded-xl border border-pink-800/40">
+          <div class="relative group overflow-hidden rounded-lg border border-pink-800/60 shadow-xl aspect-video bg-black flex items-center justify-center">
+            <img id="thumbnailImg" class="w-full h-full object-cover" alt="생성된 썸네일" />
+            <div class="absolute bottom-2 right-2 bg-black/75 backdrop-blur-sm text-[10px] text-pink-200 px-2 py-0.5 rounded font-mono border border-pink-900/50">
+              1280 × 720 (16:9)
+            </div>
+          </div>
+          <div class="flex gap-2 flex-wrap items-center justify-between pt-1">
+            <div class="flex gap-2">
+              <a id="thumbnailDl" download="thumbnail.jpg"
+                class="text-xs bg-pink-600 hover:bg-pink-500 text-white font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1 shadow">
+                ⬇ 썸네일 다운로드 (1280×720)
+              </a>
+              <button onclick="generateThumbnailFromConcept()"
+                class="text-xs bg-slate-700 hover:bg-slate-600 text-pink-300 font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1 border border-slate-600">
+                🔄 재생성
+              </button>
+            </div>
+            <p id="thumbnailStatus" class="text-[11px] text-slate-300 font-medium"></p>
+          </div>
         </div>
       </div>
 
@@ -975,54 +1705,169 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
 
   // ─── 썸네일 이미지 생성 ──────────────────────────────
   window.generateThumbnailFromConcept = async () => {
-    const engPromptEl = document.getElementById('thumbnailImagePromptText');
+    const promptInput = document.getElementById('thumbnailImagePromptText');
     const conceptEl   = document.getElementById('thumbnailConceptText');
-    let imagePrompt   = engPromptEl?.textContent.trim()
-                     || _cachedOutline?.thumbnailImagePrompt?.trim()
-                     || '';
+    const spinner     = document.getElementById('thumbnailSpinner');
+    const spinnerText = document.getElementById('thumbnailSpinnerText');
+    const result      = document.getElementById('thumbnailResult');
+    const statusEl    = document.getElementById('thumbnailStatus');
+    const genBtn      = document.getElementById('thumbnailGenBtn');
 
-    if (!imagePrompt) {
-      const concept = conceptEl?.textContent.trim() || _cachedOutline?.thumbnailConcept || '';
-      if (!concept) { alert('썸네일 컨셉이 없습니다. 먼저 대본을 생성해주세요.'); return; }
-      imagePrompt = await callGemini(
-        `Convert this YouTube thumbnail concept to an English Imagen 4 image generation prompt.\nOutput ONLY the English prompt (max 200 words), no explanation, no Korean.\nMake it photorealistic, cinematic, bold composition suitable for a YouTube thumbnail, ample space for text overlay.\nThumbnail concept: ${concept}`
-      );
-      imagePrompt = imagePrompt.trim();
-    }
+    let imagePrompt = promptInput?.value.trim()
+                   || promptInput?.textContent.trim()
+                   || _cachedOutline?.thumbnailImagePrompt?.trim()
+                   || '';
 
-    const spinner  = document.getElementById('thumbnailSpinner');
-    const result   = document.getElementById('thumbnailResult');
-    const statusEl = document.getElementById('thumbnailStatus');
+    const concept = conceptEl?.textContent.trim() || _cachedOutline?.thumbnailConcept || '';
+
     if (spinner) spinner.classList.remove('hidden');
     if (result)  result.classList.add('hidden');
+    if (genBtn)  genBtn.disabled = true;
 
     try {
+      if (!imagePrompt) {
+        if (!concept) throw new Error('썸네일 컨셉이 없습니다. 대본을 먼저 생성해주세요.');
+        if (spinnerText) spinnerText.textContent = '🌏 썸네일 영문 프롬프트 생성 중…';
+        imagePrompt = await callGemini(
+          `Convert this YouTube thumbnail concept to an English AI image generation prompt for a viral YouTube thumbnail. Output ONLY the English prompt (max 150 words), no markdown, no Korean explanation.\nThumbnail concept: ${concept}`
+        );
+        imagePrompt = imagePrompt.replace(/^```[a-z]*\n?|```$/gm, '').trim();
+        if (promptInput) {
+          if ('value' in promptInput) promptInput.value = imagePrompt;
+          else promptInput.textContent = imagePrompt;
+        }
+      }
+
+      if (spinnerText) spinnerText.textContent = `🎨 AI 썸네일 이미지 생성 중… (${_currentThumbnailEngine})`;
+
+      let rawSrc = null;
+      let usedEngineName = '';
+
+      // 프롬프트에 썸네일 품질 키워드 및 텍스트 제외 규칙 적용
+      let finalPrompt = window.applyNoText ? window.applyNoText(imagePrompt) : imagePrompt;
+      if (!finalPrompt.toLowerCase().includes('thumbnail')) {
+        finalPrompt += ', YouTube thumbnail style, high contrast, vivid lighting, eye-catching composition';
+      }
+
       const cfgRes = await fetch('/api/config').catch(() => ({ json: () => ({}) }));
       const cfg    = await cfgRes.json().catch(() => ({}));
       const geminiKey = document.getElementById('geminiApiKey')?.value.trim() || cfg.GEMINI_API_KEY || '';
-      const res = await fetch('/api/proxy/gemini-image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: window.applyNoText(imagePrompt), geminiApiKey: geminiKey }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || '이미지 생성 실패');
 
-      const b64 = json.predictions?.[0]?.bytesBase64Encoded;
-      if (!b64) throw new Error('이미지 데이터 없음');
+      if (_currentThumbnailEngine === 'comfyui') {
+        try {
+          if (spinnerText) spinnerText.textContent = '⚙️ ComfyUI (로컬 AI)로 썸네일 생성 중…';
+          rawSrc = await generateComfyUIImage(finalPrompt, {
+            width: 768,
+            height: 448,
+            steps: 20,
+            cfg: 7.0,
+            negative_prompt: window.NO_TEXT_NEGATIVE || 'text, watermark, blurry, ugly, low quality, distorted, extra limbs',
+            onProgress: (status) => {
+              if (spinnerText) spinnerText.textContent = status;
+            }
+          });
+          if (rawSrc) {
+            usedEngineName = 'ComfyUI (로컬 AI)';
+          }
+        } catch (err) {
+          console.warn('ComfyUI thumbnail generation error:', err);
+          if (spinnerText) spinnerText.textContent = `⚠️ ComfyUI 오류 (${err.message}) → 🌸 Pollinations로 자동 폴백…`;
+        }
+      }
 
-      const imgSrc = `data:image/png;base64,${b64}`;
+      if (!rawSrc && _currentThumbnailEngine === 'stability' && (cfg.STABILITY_API_KEY || STABILITY_API_KEY)) {
+        try {
+          const res = await fetch('/api/proxy/stability-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prompt: finalPrompt,
+              negative_prompt: window.NO_TEXT_NEGATIVE || 'text, watermark, blurry',
+              model: 'sd3.5-large',
+              aspect_ratio: '16:9'
+            })
+          });
+          const data = await res.json();
+          if (res.ok && data.image) {
+            rawSrc = 'data:image/png;base64,' + data.image;
+            usedEngineName = 'Stable Diffusion (SD3.5)';
+          } else {
+            console.warn('Stability image failed, falling back to Pollinations:', data.error || data.errors);
+          }
+        } catch (err) {
+          console.warn('Stability request error:', err);
+        }
+      }
+
+      if (!rawSrc && _currentThumbnailEngine === 'imagen' && geminiKey) {
+        try {
+          const res = await fetch('/api/proxy/gemini-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prompt: finalPrompt,
+              width: 1280,
+              height: 720,
+              geminiApiKey: geminiKey
+            }),
+          });
+          const json = await res.json();
+          const b64 = json.predictions?.[0]?.bytesBase64Encoded
+                   || json.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data
+                   || json.image;
+          if (res.ok && b64) {
+            rawSrc = `data:${json.mimeType || 'image/png'};base64,${b64}`;
+            usedEngineName = 'Gemini Imagen';
+          } else {
+            console.warn('Gemini Imagen failed, falling back to Pollinations:', json.error);
+          }
+        } catch (err) {
+          console.warn('Gemini Imagen request error:', err);
+        }
+      }
+
+      // Default / Fallback: Pollinations.ai (Flux)
+      if (!rawSrc) {
+        if (spinnerText) spinnerText.textContent = '🌸 Pollinations(고화질 Flux)로 썸네일 생성 중…';
+        const res = await fetch('/api/proxy/pollinations-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: finalPrompt,
+            width: 1280,
+            height: 720,
+            model: 'flux'
+          })
+        });
+        const data = await res.json();
+        const b64 = data.image || data.predictions?.[0]?.bytesBase64Encoded;
+        if (res.ok && b64) {
+          rawSrc = 'data:image/jpeg;base64,' + b64;
+          usedEngineName = _currentThumbnailEngine === 'pollinations' ? 'Pollinations (Flux)' : 'Pollinations (자동 폴백)';
+        } else {
+          throw new Error(data.error || '이미지 생성 서버 응답 실패');
+        }
+      }
+
       const imgEl  = document.getElementById('thumbnailImg');
       const dlEl   = document.getElementById('thumbnailDl');
-      if (imgEl) imgEl.src = imgSrc;
-      if (dlEl)  dlEl.href = imgSrc;
-      if (result)   result.classList.remove('hidden');
-      if (statusEl) statusEl.textContent = '✅ 썸네일 생성 완료 (1280×720 권장 크기로 저장됩니다)';
+      if (imgEl) imgEl.src = rawSrc;
+      if (dlEl) {
+        dlEl.href = rawSrc;
+        const topicSlug = (_cachedOutlineKeyword || 'youtube').replace(/[^a-zA-Z0-9가-힣_-]/g, '_');
+        dlEl.download = `thumbnail_${topicSlug}.jpg`;
+      }
+      if (statusEl) {
+        statusEl.textContent = `✅ ${usedEngineName}으로 썸네일 생성 완료!`;
+      }
+      if (result) result.classList.remove('hidden');
+
     } catch (e) {
-      if (statusEl) statusEl.textContent = '❌ 오류: ' + e.message;
-      if (result)   result.classList.remove('hidden');
+      if (statusEl) statusEl.textContent = '❌ 오류: ' + (e.message || String(e));
+      if (result)  result.classList.remove('hidden');
     } finally {
       if (spinner) spinner.classList.add('hidden');
+      if (genBtn)  genBtn.disabled = false;
     }
   };
 
@@ -1116,29 +1961,43 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
     el.textContent = text;
     el.parentElement?.scrollTo({ top: 99999, behavior: 'smooth' });
   }
-  async function geminiChat(systemPrompt, history) {
+  async function geminiChat(systemPrompt, history, retries = 3) {
     const body = JSON.stringify({
       system_instruction: { parts: [{ text: systemPrompt }] },
       contents: history
     });
     const useProxy = window.location.protocol === 'http:' || window.location.hostname === 'localhost';
-    let res;
-    if (useProxy) {
-      res = await fetch('/api/proxy/gemini', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body
-      });
-    } else {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-      res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        let res;
+        if (useProxy) {
+          res = await fetch('/api/proxy/gemini', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body
+          });
+        } else {
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+          res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+        }
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          const errMsg = err?.error?.message || `HTTP ${res.status}`;
+          if (res.status === 429 && attempt < retries - 1) {
+            console.warn(`geminiChat 429 rate limit hit, retrying in ${(attempt + 1) * 2}s...`);
+            await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+            continue;
+          }
+          throw new Error(errMsg);
+        }
+        const data = await res.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || '응답 없음';
+      } catch (e) {
+        if (attempt >= retries - 1) throw e;
+        await new Promise(r => setTimeout(r, (attempt + 1) * 1500));
+      }
     }
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err?.error?.message || `HTTP ${res.status}`);
-    }
-    const data = await res.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || '응답 없음';
   }
 
   // ── 🖼️ 이미지 스크립트 채팅 ───────────────────────
@@ -1776,6 +2635,7 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
 
   // ── 🎨 Gemini Imagen 이미지 생성 & 편집 ──────────────────────────────
   let _imageCards = [];
+  window.__renderCardsForTest = (cards) => { _imageCards = cards; renderGrokModal(cards); document.getElementById('grokModal')?.classList.remove('hidden'); };   // TEMP TEST HOOK
 
   function parseCardsFromHistory() {
     const cards = [];
@@ -1896,18 +2756,22 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
   };
 
   window.openGrokModal = () => {
-    if (!GEMINI_API_KEY) {
+    if (!GEMINI_API_KEY && !window.GEMINI_API_KEY) {
       alert('Gemini API 키를 먼저 설정해주세요.\n🔑 API 키 설정 → Gemini API 키 입력 → 키 저장');
       return;
     }
-    const cards = parseCardsFromHistory();
+    let cards = (_imageCards && _imageCards.length > 0) ? _imageCards : parseCardsFromHistory();
     if (!cards.length) {
       alert('이미지 스크립트를 먼저 생성해주세요.\n🖼️ 버튼 → 대본으로 이미지 스크립트 생성 후 사용 가능합니다.');
       return;
     }
     _imageCards = cards;
+    window._imageCards = cards;
     _seqIdx = -1;
     renderGrokModal(cards);
+    if (window.renderStylePresets) window.renderStylePresets();
+    if (window.setImageModel) window.setImageModel(IMAGE_MODEL || 'comfyui');
+    if (window.updateSubtitleToggleUI) window.updateSubtitleToggleUI();
     document.getElementById('seqNavBar')?.classList.add('hidden');
     document.getElementById('grokModal').classList.remove('hidden');
   };
@@ -1971,7 +2835,7 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
             💬 나레이션 자동 분할
           </button>
           <!-- ① AI 채우기 -->
-          <button onclick="autoFillAllCards()"
+          <button id="autoFillAllBtn" onclick="autoFillAllCards()"
             class="bg-violet-700 hover:bg-violet-600 text-white text-xs font-bold px-3 py-2 rounded-lg transition whitespace-nowrap">
             🤖 ① 전체 AI 채우기
           </button>
@@ -2027,7 +2891,24 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
             <div class="p-4 space-y-4">
               <!-- 프롬프트 편집 -->
               <div>
-                <label class="block text-[11px] font-semibold text-blue-300 mb-1.5">🖼️ 이미지 프롬프트 (영어)</label>
+                <div class="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+                  <label class="block text-[11px] font-semibold text-blue-300">🖼️ 이미지 프롬프트 (영어)</label>
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-[10px] text-slate-400">스타일:</span>
+                    <select id="img-style-${i}" onchange="setCardStyle(${i}, this.value)"
+                      class="bg-slate-800 border border-slate-600 rounded px-1.5 py-0.5 text-[10px] text-indigo-300 focus:outline-none focus:border-indigo-500">
+                      <option value="inherit" ${(!card.stylePreset || card.stylePreset === 'inherit') ? 'selected' : ''}>🌐 전역 (${window.getStyleName(SELECTED_IMAGE_STYLE)})</option>
+                      ${Object.entries(IMAGE_STYLE_PRESETS).map(([k, p]) => `
+                        <option value="${k}" ${card.stylePreset === k ? 'selected' : ''}>${p.icon} ${p.name}</option>
+                      `).join('')}
+                    </select>
+                    <button type="button" id="ai-prompt-btn-${i}" onclick="generateStylePromptForCard(${i})"
+                      class="bg-indigo-900/80 hover:bg-indigo-700 text-indigo-200 border border-indigo-600/60 rounded px-2 py-0.5 text-[10px] font-bold transition flex items-center gap-1"
+                      title="이 장면에 선택된 스타일에 맞게 영문 프롬프트 AI 자동 재작성">
+                      🪄 AI 맞춤 작성
+                    </button>
+                  </div>
+                </div>
                 <textarea id="img-prompt-${i}" rows="3"
                   class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-200
                          resize-none focus:outline-none focus:border-blue-500 font-mono leading-relaxed"
@@ -2072,6 +2953,11 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
                   </button>
                   <button id="phos-opts-toggle-${i}" onclick="togglePhospheneOpts(${i})" title="Phosphene 옵션"
                     class="hidden text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold px-2 py-1 rounded-lg transition">⚙️</button>
+                  <button id="sub-toggle-btn-${i}" onclick="toggleImageSubtitleOverlay(${i})"
+                    class="text-xs bg-indigo-700/80 hover:bg-indigo-600 text-indigo-100 font-bold px-3 py-1 rounded-lg transition"
+                    title="이미지에 자막을 즉시 삽입하거나 제거합니다">
+                    💬 자막 토글
+                  </button>
                   <button onclick="regenWithSub(${i})"
                     class="text-xs bg-yellow-700/60 hover:bg-yellow-600 text-yellow-200 font-bold px-3 py-1 rounded-lg transition">
                     🔄 자막 재적용
@@ -2150,7 +3036,13 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
                   </div>
                   <div>
                     <div class="flex items-center justify-between mb-1 gap-2 flex-wrap">
-                      <label class="text-[11px] font-semibold text-yellow-400">💬 자막 텍스트</label>
+                      <div class="flex items-center gap-2">
+                        <label class="text-[11px] font-semibold text-yellow-400">💬 자막 텍스트</label>
+                        <label class="flex items-center gap-1 cursor-pointer text-[10px] text-slate-300 font-medium bg-slate-800/90 px-2 py-0.5 rounded border border-slate-600/70 hover:bg-slate-700">
+                          <input type="checkbox" id="sub-enabled-${i}" ${(!card.subtitleDisabled) ? 'checked' : ''} onchange="toggleCardSubEnabled(${i}, this.checked)" class="rounded text-indigo-500 focus:ring-0">
+                          <span>자막 삽입</span>
+                        </label>
+                      </div>
                       <div class="flex items-center gap-1.5 text-[10px]">
                         <span id="sub-count-${i}" class="text-slate-400">0자</span>
                         <span class="text-slate-600">/</span>
@@ -2178,8 +3070,9 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
             </div>
           </div>`).join('')}
       </div>`;
-    // 초기 글자수 카운터 갱신
+    // 초기 글자수 카운터 갱신 및 스타일 프리셋 렌더링
     cards.forEach((_, i) => updateSubCount(i));
+    setTimeout(() => { if (window.renderStylePresets) window.renderStylePresets(); }, 50);
   }
 
   window.toggleEditPanel = (idx) => {
@@ -2333,7 +3226,8 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
         const imgSrc = imgEl?.dataset?.rawSrc || imgEl?.src;
         if (!imgSrc || imgSrc === window.location.href) continue;
 
-        const subText = (document.getElementById(`img-sub-${i}`)?.value ?? _imageCards[i]?.subtitles ?? '').trim();
+        const isSubEnabled = _globalSubtitleOverlay && !_imageCards[i]?.subtitleDisabled;
+        const subText = isSubEnabled ? (document.getElementById(`img-sub-${i}`)?.value ?? _imageCards[i]?.subtitles ?? '').trim() : '';
         const subMax  = parseInt(document.getElementById(`sub-max-${i}`)?.value || '30', 10);
         const title   = (_imageCards[i]?.chapterTitle || `장면${i+1}`).replace(/[\\/:*?"<>|]/g, '_').slice(0, 30);
 
@@ -2390,7 +3284,8 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
       if (b64) { imgs.file(`${fname}.png`, b64, { base64: true }); imgCnt++; }
 
       // WebM
-      const subText = (document.getElementById(`img-sub-${i}`)?.value ?? _imageCards[i]?.subtitles ?? '').trim();
+      const isSubEnabled = _globalSubtitleOverlay && !_imageCards[i]?.subtitleDisabled;
+      const subText = isSubEnabled ? (document.getElementById(`img-sub-${i}`)?.value ?? _imageCards[i]?.subtitles ?? '').trim() : '';
       const subMax  = parseInt(document.getElementById(`sub-max-${i}`)?.value || '30', 10);
       try {
         const blob = await renderSceneToWebM(imgSrc, subText, subMax);
@@ -2428,62 +3323,86 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
     }
   };
 
-  // ── AI 자동 채우기 (컷묘사 / 촬영편집방향 / 자막텍스트) ────────────
+  // ── AI 자동 채우기 (단일 카드: 컷묘사 / 촬영편집방향 / 자막텍스트) ────────────
   window.autoFillCard = async (idx) => {
-    const card    = _imageCards[idx];
+    const cards = (_imageCards && _imageCards.length > 0) ? _imageCards : (window._imageCards || []);
+    const card = cards[idx];
     if (!card) return;
 
     const btn = document.getElementById(`autofill-btn-${idx}`);
-    const orig = btn?.textContent;
+    const orig = btn?.textContent || '🤖 AI 자동 채우기';
     if (btn) { btn.textContent = '⏳ 생성 중…'; btn.disabled = true; }
 
     const prompt = (document.getElementById(`img-prompt-${idx}`)?.value || card.prompt || '').trim();
     const title  = card.chapterTitle || `장면 ${idx + 1}`;
+    const cutPrev = (document.getElementById(`img-cut-${idx}`)?.value || card.cutDescription || '').trim();
+
+    const activeStyle = card.stylePreset && card.stylePreset !== 'inherit' ? card.stylePreset : SELECTED_IMAGE_STYLE;
+    const styleInfo = IMAGE_STYLE_PRESETS[activeStyle] || IMAGE_STYLE_PRESETS['none'];
+    const styleGuide = (typeof STYLE_PROMPT_GUIDES !== 'undefined' && STYLE_PROMPT_GUIDES[activeStyle]?.guide) || styleInfo.promptSuffix || '';
 
     try {
-      const result = await geminiChat(
-        `당신은 유튜브 영상 연출 전문가입니다. 아래 정보를 바탕으로 다음 형식으로만 출력하세요.
-다른 설명·부연·마크다운 없이 아래 3개 태그만 사용하세요.
+      const singlePrompt = `당신은 유튜브 영상 연출 및 AI 이미지 프롬프트 최고 전문가입니다.
+아래 단일 장면에 대한 연출 계획(컷 묘사, 촬영/편집 방향, 자막 텍스트)과 함께, 선택된 **[${styleInfo.name}]** 스타일에 완벽히 특화된 고품질 영문 이미지 생성 프롬프트를 반드시 JSON 형식으로만 작성하세요.
 
-[CUT]
-이 장면의 컷 묘사 (한국어, 2~3문장, 화면에 보여줄 구체적 장면)
-[DIRECTION]
-촬영/편집 방향 (한국어, 1~2문장, B-roll·텍스트 오버레이·전환 효과 등)
-[SUBTITLE]
-자막 텍스트 (한국어, 15~25자, 핵심 메시지 한 문장만)`,
-        [{ role: 'user', parts: [{ text: `챕터 제목: ${title}\n이미지 프롬프트(참고): ${prompt}` }] }]
-      );
+[선택된 이미지 스타일]
+스타일: ${styleInfo.name}
+스타일 렌더링 지침: ${styleGuide}
 
-      // 태그 기반 파싱 (JSON 파싱 오류 없음)
-      const extract = (tag, next) => {
-        const re = new RegExp(`\\[${tag}\\]\\s*([\\s\\S]*?)(?=\\[${next}\\]|$)`, 'i');
-        return (result.match(re)?.[1] || '').trim();
-      };
-      const data = {
-        cut:      extract('CUT',       'DIRECTION'),
-        direction: extract('DIRECTION', 'SUBTITLE'),
-        subtitle:  extract('SUBTITLE',  'END'),
-      };
+JSON 출력 형식:
+{
+  "cut": "화면에 보여줄 구체적인 컷 묘사 (한국어, 2~3문장)",
+  "direction": "촬영/편집 연출 방향 (한국어, 1~2문장, B-roll/효과 등)",
+  "subtitle": "자막 텍스트 (한국어, 15~25자 핵심 메시지 한 문장)",
+  "prompt": "English image generation prompt specifically crafted for ${styleInfo.name} style (60-120 words, rich visual details, no text/watermark words)"
+}
 
-      if (!data.cut && !data.direction && !data.subtitle) {
-        throw new Error('응답 형식을 인식하지 못했습니다. 다시 시도해주세요.');
+장면 정보:
+- 챕터 제목: ${title}
+- 기존 내용/프롬프트: ${cutPrev || prompt || title}`;
+
+      const raw = await callGemini(singlePrompt, { jsonMode: true });
+      let data = safeParseJSON(raw) || {};
+
+      let cut = data.cut || data.cutDescription || data.cut_description || data.description || data['컷'] || data['컷묘사'] || '';
+      let direction = data.direction || data.shootingDirection || data.shooting_direction || data['연출'] || data['촬영방향'] || '';
+      let subtitle = data.subtitle || data.subtitles || data.caption || data['자막'] || data['자막텍스트'] || '';
+      let newPrompt = data.prompt || data.imagePrompt || data.image_prompt || data['프롬프트'] || '';
+
+      // JSON 파싱 실패 시 텍스트 태그 정규식 백업 추출
+      if (!cut && !direction && !subtitle) {
+        cut = (raw.match(/(?:\[CUT(?:\s*\d+)?\]|컷\s*묘사|CUT\s*:)\s*([^\n\r]+(?:\n[^\n\r]+)?)/i)?.[1] || '').trim();
+        direction = (raw.match(/(?:\[DIRECTION(?:\s*\d+)?\]|촬영[\s/]*편집\s*방향|연출|DIRECTION\s*:)\s*([^\n\r]+)/i)?.[1] || '').trim();
+        subtitle = (raw.match(/(?:\[SUBTITLE(?:\s*\d+)?\]|자막\s*텍스트|자막|SUBTITLE\s*:)\s*([^\n\r]+)/i)?.[1] || '').trim();
+        newPrompt = (raw.match(/(?:\[PROMPT(?:\s*\d+)?\]|PROMPT\s*:)\s*([^\n\r]+(?:\n[^\n\r]+)?)/i)?.[1] || '').trim();
+      }
+
+      if (!cut && !direction && !subtitle && !newPrompt) {
+        throw new Error('응답 내용을 인식하지 못했습니다.');
       }
 
       // 텍스트 영역에 채우기
       const cutEl = document.getElementById(`img-cut-${idx}`);
       const dirEl = document.getElementById(`img-dir-${idx}`);
       const subEl = document.getElementById(`img-sub-${idx}`);
-      if (cutEl && data.cut)       cutEl.value = data.cut;
-      if (dirEl && data.direction) dirEl.value = data.direction;
-      if (subEl && data.subtitle) {
-        subEl.value = data.subtitle;
+      const promptEl = document.getElementById(`img-prompt-${idx}`);
+      if (cutEl && cut)       cutEl.value = cut;
+      if (dirEl && direction) dirEl.value = direction;
+      if (subEl && subtitle) {
+        subEl.value = subtitle;
         updateSubCount(idx);
       }
+      if (promptEl && newPrompt && newPrompt.length > 10) {
+        promptEl.value = newPrompt;
+        promptEl.classList.add('border-indigo-500', 'bg-indigo-950/40');
+        setTimeout(() => promptEl.classList.remove('bg-indigo-950/40'), 1500);
+      }
 
-      // _imageCards에도 저장
-      if (data.cut)       card.cutDescription = data.cut;
-      if (data.direction) card.direction       = data.direction;
-      if (data.subtitle)  card.subtitles       = data.subtitle;
+      // _imageCards 및 window._imageCards에도 저장
+      if (cut)       card.cutDescription = cut;
+      if (direction) card.direction       = direction;
+      if (subtitle)  card.subtitles       = subtitle;
+      if (newPrompt && newPrompt.length > 10) card.prompt = newPrompt;
 
       // 패널 펼치기
       const panel = document.getElementById(`edit-panel-${idx}`);
@@ -2493,15 +3412,152 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
         if (arrow) arrow.textContent = '▴';
       }
     } catch (e) {
-      alert(`장면 ${idx + 1} 자동 채우기 실패: ${e.message}`);
+      console.error(`장면 ${idx + 1} 자동 채우기 실패:`, e);
+      if (btn) btn.textContent = '⚠️ 재시도';
     } finally {
-      if (btn) { btn.textContent = orig; btn.disabled = false; }
+      if (btn && btn.textContent !== '⚠️ 재시도') { btn.textContent = orig; }
+      if (btn) btn.disabled = false;
     }
   };
 
+  // ── 전체 장면 AI 일괄 자동 채우기 (단일 요청으로 Rate Limit 429 완전 방지 + 순차 보완) ──
   window.autoFillAllCards = async () => {
-    for (let i = 0; i < _imageCards.length; i++) {
-      await autoFillCard(i);
+    const cards = (_imageCards && _imageCards.length > 0) ? _imageCards : (window._imageCards || []);
+    if (!cards || cards.length === 0) {
+      alert('대본 카드가 없습니다. 먼저 대본을 작성/분할해 주세요.');
+      return;
+    }
+    _imageCards = cards;
+    window._imageCards = cards;
+
+    const btn = document.getElementById('autoFillAllBtn') || document.getElementById('fullPipelineBtn');
+    const origText = btn ? btn.textContent : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ AI 전체 채우는 중…';
+    }
+    
+    // 1단계: 전체 장면 정보를 모아서 1개의 Gemini 요청으로 일괄 생성 시도
+    let batchSuccess = false;
+    const filledIndices = new Set();
+    try {
+      const scenesInfo = cards.map((c, i) => {
+        const cut = (document.getElementById(`img-cut-${i}`)?.value || c.cutDescription || '').trim();
+        const p = (document.getElementById(`img-prompt-${i}`)?.value || c.prompt || '').trim();
+        const t = c.chapterTitle || `장면 ${i + 1}`;
+        return `[장면 ${i + 1}]\n챕터 제목: ${t}\n장면 내용/프롬프트: ${cut || p || t}`;
+      }).join('\n\n');
+
+      const activeStyle = SELECTED_IMAGE_STYLE;
+      const styleInfo = IMAGE_STYLE_PRESETS[activeStyle] || IMAGE_STYLE_PRESETS['none'];
+      const styleGuide = (typeof STYLE_PROMPT_GUIDES !== 'undefined' && STYLE_PROMPT_GUIDES[activeStyle]?.guide) || styleInfo.promptSuffix || '';
+
+      const batchPrompt = `당신은 유튜브 영상 연출 및 AI 이미지 프롬프트 최고 전문가입니다.
+총 ${cards.length}개의 각 장면에 대해 컷 묘사, 촬영/편집 방향, 자막 텍스트와 함께 선택된 **[${styleInfo.name}]** 스타일에 완벽히 최적화된 영문 이미지 생성 프롬프트를 작성해주세요.
+
+[선택된 이미지 스타일]
+스타일: ${styleInfo.name}
+스타일 렌더링 지침: ${styleGuide}
+
+반드시 아래 JSON 배열 형식으로만 출력하세요. 마크다운 코드블록이나 불필요한 설명 없이 순수 JSON만 출력하세요:
+[
+  {
+    "sceneIndex": 1,
+    "cut": "화면에 보여줄 구체적인 컷 묘사 (한국어, 2~3문장)",
+    "direction": "촬영/편집 연출 방향 (한국어, 1~2문장)",
+    "subtitle": "자막 텍스트 (한국어, 15~25자 핵심 메시지)",
+    "prompt": "English image generation prompt tailored for ${styleInfo.name} style (60-120 words, rich visual details, no text/watermark words)"
+  }
+]
+
+대상 장면 목록:
+${scenesInfo}`;
+
+      const raw = await callGemini(batchPrompt, { jsonMode: true });
+      let parsed = safeParseJSON(raw);
+      if (!Array.isArray(parsed) && parsed && typeof parsed === 'object') {
+        parsed = parsed.scenes || parsed.cards || parsed.items || Object.values(parsed);
+      }
+
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        parsed.forEach((item, idx) => {
+          if (!item || typeof item !== 'object') return;
+          let cardIdx = idx;
+          if (item.sceneIndex !== undefined || item.scene !== undefined || item.index !== undefined || item.id !== undefined) {
+            const rawIdx = item.sceneIndex ?? item.scene ?? item.index ?? item.id;
+            const num = typeof rawIdx === 'number' ? rawIdx : parseInt(String(rawIdx).replace(/[^\d]/g, ''), 10);
+            if (!isNaN(num) && num > 0 && num <= cards.length) {
+              cardIdx = num - 1;
+            }
+          }
+          if (cardIdx >= 0 && cardIdx < cards.length) {
+            const cutVal = item.cut || item.cutDescription || item.cut_description || item.description || item['컷'] || item['컷묘사'] || '';
+            const dirVal = item.direction || item.shootingDirection || item.shooting_direction || item['연출'] || item['촬영방향'] || '';
+            const subVal = item.subtitle || item.subtitles || item.caption || item.script || item['자막'] || item['자막텍스트'] || '';
+            const promptVal = item.prompt || item.imagePrompt || item.image_prompt || '';
+
+            const card = cards[cardIdx];
+            const cutEl = document.getElementById(`img-cut-${cardIdx}`);
+            const dirEl = document.getElementById(`img-dir-${cardIdx}`);
+            const subEl = document.getElementById(`img-sub-${cardIdx}`);
+            const promptEl = document.getElementById(`img-prompt-${cardIdx}`);
+
+            if (cutEl && cutVal) cutEl.value = cutVal;
+            if (dirEl && dirVal) dirEl.value = dirVal;
+            if (subEl && subVal) {
+              subEl.value = subVal;
+              updateSubCount(cardIdx);
+            }
+            if (promptEl && promptVal && promptVal.length > 10) {
+              promptEl.value = promptVal;
+              promptEl.classList.add('border-indigo-500', 'bg-indigo-950/40');
+              setTimeout(() => promptEl.classList.remove('bg-indigo-950/40'), 1500);
+            }
+
+            if (card) {
+              if (cutVal) card.cutDescription = cutVal;
+              if (dirVal) card.direction = dirVal;
+              if (subVal) card.subtitles = subVal;
+              if (promptVal && promptVal.length > 10) card.prompt = promptVal;
+            }
+
+            // 패널 펼치기
+            const panel = document.getElementById(`edit-panel-${cardIdx}`);
+            const arrow = document.getElementById(`edit-arrow-${cardIdx}`);
+            if (panel?.classList.contains('hidden')) {
+              panel.classList.remove('hidden');
+              if (arrow) arrow.textContent = '▴';
+            }
+            if (cutVal || dirVal || subVal || promptVal) filledIndices.add(cardIdx);
+          }
+        });
+        if (filledIndices.size > 0) {
+          batchSuccess = true;
+        }
+      }
+    } catch (e) {
+      console.warn('일괄 자동 채우기 JSON 파싱 실패, 순차 처리로 전환합니다:', e);
+    }
+
+    // 2단계: 일괄 생성에서 누락된 카드가 있거나 실패한 경우 순차 보완 실행
+    for (let i = 0; i < cards.length; i++) {
+      if (!filledIndices.has(i)) {
+        if (btn) btn.textContent = `⏳ 장면 ${i + 1}/${cards.length} 채우는 중…`;
+        await autoFillCard(i);
+        if (i < cards.length - 1) {
+          await new Promise(r => setTimeout(r, 400));
+        }
+      }
+    }
+
+    if (btn) {
+      btn.textContent = '✅ 채우기 완료!';
+      setTimeout(() => {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = origText || '🤖 ① 전체 AI 채우기';
+        }
+      }, 1500);
     }
   };
 
@@ -2539,47 +3595,144 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
     if (btn) { btn.disabled = true; btn.textContent = '검증 중…'; }
 
     try {
-      // ── Step 1: 프롬프트 & 장면 매칭 검증 ──
+      // ── Step 1: 프롬프트 & 장면 매칭 검증 (보조 기능 - 실패 시에도 이미지 생성 진행) ──
       if (cutDesc) {
-        if (spinLabel) spinLabel.textContent = '① 프롬프트 검증 중…';
-        const valResult = await geminiChat(
-          '당신은 이미지 생성 프롬프트 품질 평가 전문가입니다. 한국어 장면 묘사와 영어 AI 이미지 프롬프트의 매칭 정도를 평가하고 딱 2줄로 답변하세요: 첫 줄은 "✅ 매칭 우수" / "⚠️ 부분 매칭" / "❌ 미스매칭" 중 하나 + 점수(1-10) + 한 줄 이유, 둘째 줄은 개선 제안 (없으면 "개선 불필요").',
-          [{ role: 'user', parts: [{ text: `장면 묘사 (한국어): ${cutDesc}\n\nAI 이미지 프롬프트 (영어): ${prompt}` }] }]
-        );
-        const isGood = valResult.includes('✅');
-        const needsImprove = !isGood;
-        valEl.className = `rounded-lg px-3 py-2 text-xs border ${
-          isGood
-            ? 'bg-green-900/20 border-green-700/50 text-green-300'
-            : valResult.includes('⚠️')
-              ? 'bg-yellow-900/20 border-yellow-700/50 text-yellow-300'
-              : 'bg-red-900/20 border-red-700/50 text-red-300'
-        }`;
-        valEl.innerHTML =
-          valResult.split('\n').map(l => `<p>${escHtml(l)}</p>`).join('') +
-          (needsImprove ? `
-            <div class="mt-2 pt-2 border-t border-current/20">
-              <button onclick="improvePromptFromVal(${idx})"
-                class="bg-blue-700 hover:bg-blue-600 text-white font-bold px-3 py-1 rounded-lg transition text-[11px]">
-                ✨ 개선 제안 자동 적용
-              </button>
-            </div>` : '');
-        valEl.classList.remove('hidden');
+        try {
+          if (spinLabel) spinLabel.textContent = '① 프롬프트 검증 중…';
+          const valResult = await geminiChat(
+            '당신은 이미지 생성 프롬프트 품질 평가 전문가입니다. 한국어 장면 묘사와 영어 AI 이미지 프롬프트의 매칭 정도를 평가하고 딱 2줄로 답변하세요: 첫 줄은 "✅ 매칭 우수" / "⚠️ 부분 매칭" / "❌ 미스매칭" 중 하나 + 점수(1-10) + 한 줄 이유, 둘째 줄은 개선 제안 (없으면 "개선 불필요").',
+            [{ role: 'user', parts: [{ text: `장면 묘사 (한국어): ${cutDesc}\n\nAI 이미지 프롬프트 (영어): ${prompt}` }] }],
+            1
+          );
+          if (valResult && valResult !== '응답 없음') {
+            const isGood = valResult.includes('✅');
+            const needsImprove = !isGood;
+            valEl.className = `rounded-lg px-3 py-2 text-xs border ${
+              isGood
+                ? 'bg-green-900/20 border-green-700/50 text-green-300'
+                : valResult.includes('⚠️')
+                  ? 'bg-yellow-900/20 border-yellow-700/50 text-yellow-300'
+                  : 'bg-red-900/20 border-red-700/50 text-red-300'
+            }`;
+            valEl.innerHTML =
+              valResult.split('\n').map(l => `<p>${escHtml(l)}</p>`).join('') +
+              (needsImprove ? `
+                <div class="mt-2 pt-2 border-t border-current/20">
+                  <button onclick="improvePromptFromVal(${idx})"
+                    class="bg-blue-700 hover:bg-blue-600 text-white font-bold px-3 py-1 rounded-lg transition text-[11px]">
+                    ✨ 개선 제안 자동 적용
+                  </button>
+                </div>` : '');
+            valEl.classList.remove('hidden');
+          }
+        } catch (valErr) {
+          // Gemini API 429 또는 기타 오류 시 검증만 건너뛰고 이미지 생성(ComfyUI 등)은 정상 진행
+          console.warn(`장면 ${idx + 1} 프롬프트 검증 생략 (AI 한도/오류):`, valErr.message || valErr);
+        }
       }
 
-      // ── Step 2: 이미지 생성 (선택된 모델 사용, RAI 차단 시 자동 완화) ──
-      const modelName = IMAGE_MODEL === 'pollinations' ? 'Pollinations' :
-                        IMAGE_MODEL === 'stability' ? 'Stable Diffusion' : 'Gemini Imagen';
-      if (spinLabel) spinLabel.textContent = `② ${modelName} 생성 중…`;
+      // ── Step 2: 이미지 생성 (선택된 모델 & 스타일 프리셋 사용) ──
+      const cardStyle = document.getElementById(`img-style-${idx}`)?.value || _imageCards[idx]?.stylePreset || 'inherit';
+      const activeStyle = (cardStyle && cardStyle !== 'inherit') ? cardStyle : SELECTED_IMAGE_STYLE;
+      const styleInfo = IMAGE_STYLE_PRESETS[activeStyle] || IMAGE_STYLE_PRESETS['none'];
+      const styleName = styleInfo.name;
+
+      // 프롬프트 및 네거티브 프롬프트에 스타일 프리셋 적용
+      let styledPrompt = window.applyStylePreset(prompt, activeStyle);
+      styledPrompt = window.applyNoText ? window.applyNoText(styledPrompt) : styledPrompt;
+      const styleNegative = window.getStyleNegativePrompt(activeStyle);
+
+      const modelName = IMAGE_MODEL === 'comfyui' ? '⚙️ ComfyUI (로컬 AI)' :
+                        IMAGE_MODEL === 'pollinations' ? 'Pollinations (Flux)' :
+                        IMAGE_MODEL === 'local-sd' ? '💻 내 PC Local SD (MPS)' :
+                        IMAGE_MODEL === 'stability' ? 'Stable Diffusion (SD3.5)' : 'Gemini Imagen';
+      const styleSuffixLabel = activeStyle !== 'none' ? ` [${styleInfo.icon} ${styleName}]` : '';
+      if (spinLabel) spinLabel.textContent = `② ${modelName}${styleSuffixLabel} 생성 중…`;
       if (btn) btn.textContent = '생성 중…';
 
       let rawSrc = null;
-      let currentPrompt = prompt;
+      let currentPrompt = styledPrompt;
 
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           // 선택된 이미지 모델에 따라 분기
-          if (IMAGE_MODEL === 'pollinations') {
+          if (IMAGE_MODEL === 'comfyui') {
+            // ⚙️ ComfyUI 로컬 AI 가속 (MPS Apple Silicon)
+            try {
+              if (spinLabel) spinLabel.textContent = `② ⚙️ ComfyUI (로컬 AI 가속)${styleSuffixLabel} 생성 중…`;
+              rawSrc = await generateComfyUIImage(window.applyNoText(currentPrompt), {
+                width: 768,
+                height: 448,
+                steps: 20,
+                cfg: 7.0,
+                negative_prompt: styleNegative,
+                onProgress: (status) => {
+                  if (spinLabel) spinLabel.textContent = `② ${status}${styleSuffixLabel}`;
+                }
+              });
+              if (rawSrc) {
+                if (spinLabel) spinLabel.textContent = `✅ ComfyUI 생성 완료${styleSuffixLabel}`;
+                break;
+              }
+              throw new Error('ComfyUI 응답 없음');
+            } catch (err) {
+              console.warn('ComfyUI failed, fallback to Pollinations:', err);
+              if (spinLabel) spinLabel.textContent = `⚠️ ComfyUI 연결 대기 → 🌸 Pollinations(Flux)${styleSuffixLabel}로 자동 폴백…`;
+              const pollRes = await fetch('/api/proxy/pollinations-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: window.applyNoText(currentPrompt), width: 1280, height: 720, model: 'flux' })
+              });
+              const pollData = await pollRes.json();
+              const pollB64 = pollData.image || pollData.predictions?.[0]?.bytesBase64Encoded;
+              if (pollRes.ok && pollB64) {
+                rawSrc = `data:${pollData.mimeType || 'image/jpeg'};base64,` + pollB64;
+                break;
+              }
+              if (attempt >= 2) throw err;
+            }
+
+          } else if (IMAGE_MODEL === 'local-sd') {
+            // 💻 내 PC Local Stable Diffusion (Apple Silicon GPU / MPS)
+            try {
+              if (spinLabel) spinLabel.textContent = `② 💻 내 PC (Local SD - MPS 가속)${styleSuffixLabel} 생성 중…`;
+              const res = await fetch('/api/proxy/local-sd', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  prompt: window.applyNoText(currentPrompt),
+                  negative_prompt: styleNegative,
+                  width: 768,
+                  height: 432,
+                  aspect_ratio: '16:9',
+                  steps: 4
+                })
+              });
+              const data = await res.json();
+              if (res.ok && data.image) {
+                rawSrc = 'data:image/png;base64,' + data.image;
+                if (spinLabel) spinLabel.textContent = `✅ 내 PC 생성 완료 (${data.elapsed || ''}초)${styleSuffixLabel}`;
+                break;
+              }
+              throw new Error(data.error || 'Local SD 응답 오류');
+            } catch (err) {
+              console.warn('Local SD failed, fallback to Pollinations:', err);
+              if (spinLabel) spinLabel.textContent = `⚠️ Local SD 연결 대기 → 🌸 Pollinations(Flux)${styleSuffixLabel}로 자동 폴백…`;
+              const pollRes = await fetch('/api/proxy/pollinations-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: window.applyNoText(currentPrompt), width: 1280, height: 720, model: 'flux' })
+              });
+              const pollData = await pollRes.json();
+              const pollB64 = pollData.image || pollData.predictions?.[0]?.bytesBase64Encoded;
+              if (pollRes.ok && pollB64) {
+                rawSrc = `data:${pollData.mimeType || 'image/jpeg'};base64,` + pollB64;
+                break;
+              }
+              if (attempt >= 2) throw err;
+            }
+
+          } else if (IMAGE_MODEL === 'pollinations') {
             // Pollinations (무료)
             const res = await fetch('/api/proxy/pollinations-image', {
               method: 'POST',
@@ -2593,55 +3746,120 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
             }
             throw new Error(data.error || '이미지 생성 실패');
 
-          } else if (IMAGE_MODEL === 'stability' && STABILITY_API_KEY) {
-            // Stable Diffusion
-            const res = await fetch('/api/proxy/stability-image', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt: window.applyNoText(currentPrompt), negative_prompt: window.NO_TEXT_NEGATIVE, model: 'sd3.5-large', aspect_ratio: '16:9' })
-            });
-            const data = await res.json();
-            if (data.image) {
-              rawSrc = 'data:image/png;base64,' + data.image;
-              break;
+          } else if (IMAGE_MODEL === 'stability') {
+            // Stable Diffusion (Stability AI SD 3.5)
+            try {
+              if (!STABILITY_API_KEY) throw new Error('STABILITY_API_KEY가 설정되지 않았습니다.');
+              const res = await fetch('/api/proxy/stability-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  prompt: window.applyNoText(currentPrompt),
+                  negative_prompt: styleNegative,
+                  model: 'sd3.5-large',
+                  aspect_ratio: '16:9'
+                })
+              });
+              const data = await res.json();
+              if (res.ok && data.image) {
+                rawSrc = 'data:image/png;base64,' + data.image;
+                break;
+              }
+              const errTxt = data.errors?.[0] || data.error || 'Stability 생성 실패';
+              console.warn('Stability AI image failed, fallback to Pollinations:', errTxt);
+              if (spinLabel) spinLabel.textContent = `⚠️ Stability 크레딧 부족 → 🌸 Pollinations (Flux 무료)${styleSuffixLabel}로 자동 생성 중…`;
+              
+              const pollRes = await fetch('/api/proxy/pollinations-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: window.applyNoText(currentPrompt), width: 1280, height: 720, model: 'flux' })
+              });
+              const pollData = await pollRes.json();
+              const pollB64 = pollData.image || pollData.predictions?.[0]?.bytesBase64Encoded;
+              if (pollRes.ok && pollB64) {
+                rawSrc = `data:${pollData.mimeType || 'image/jpeg'};base64,` + pollB64;
+                break;
+              }
+              throw new Error(errTxt);
+            } catch (err) {
+              if (spinLabel) spinLabel.textContent = `🌸 Pollinations(Flux)${styleSuffixLabel}로 생성 중…`;
+              const pollRes = await fetch('/api/proxy/pollinations-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: window.applyNoText(currentPrompt), width: 1280, height: 720, model: 'flux' })
+              });
+              const pollData = await pollRes.json();
+              const pollB64 = pollData.image || pollData.predictions?.[0]?.bytesBase64Encoded;
+              if (pollRes.ok && pollB64) {
+                rawSrc = `data:${pollData.mimeType || 'image/jpeg'};base64,` + pollB64;
+                break;
+              }
+              if (attempt >= 2) throw err;
             }
-            throw new Error(data.error || data.errors?.[0] || '이미지 생성 실패');
 
           } else {
-            // 기본: Gemini Imagen
-            const res = await fetch('/api/proxy/gemini-image', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt: window.applyNoText(currentPrompt) }),
-            });
-            const data = await res.json();
-            const errMsg = data.error?.message || '';
+            // Gemini Imagen 시도 -> 실패/할당량초과 시 Pollinations 자동 폴백
+            try {
+              const res = await fetch('/api/proxy/gemini-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: window.applyNoText(currentPrompt) }),
+              });
+              const data = await res.json();
+              const b64 = data.predictions?.[0]?.bytesBase64Encoded
+                       || data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data
+                       || data.image;
 
-            if (!res.ok) {
-              const isRAI = errMsg.includes('RAI') || errMsg.includes('safety') ||
-                            errMsg.includes('policy') || errMsg.includes('retrieve RAI');
-              if (isRAI && attempt < 2) {
-                if (spinLabel) spinLabel.textContent = `⚠️ 안전 필터 차단 — 프롬프트 완화 중… (${attempt + 1}/2)`;
-                const saferPrompt = await geminiChat(
-                  '아래 이미지 프롬프트가 Gemini Imagen의 안전 정책에 의해 차단됐습니다. 폭력·갈등·부정적 감정을 제거하고, 같은 장면을 중립적·긍정적으로 재작성해 주세요. 영어 프롬프트만 출력하세요.',
-                  [{ role: 'user', parts: [{ text: currentPrompt }] }]
-                );
-                currentPrompt = saferPrompt.replace(/^```[a-z]*\n?|```$/gm, '').trim();
-                const promptEl2 = document.getElementById(`img-prompt-${idx}`);
-                if (promptEl2) promptEl2.value = currentPrompt;
-                if (spinLabel) spinLabel.textContent = '② 완화된 프롬프트로 재생성 중…';
-                continue;
+              if (res.ok && b64) {
+                const mime = data.mimeType || 'image/png';
+                rawSrc = `data:${mime};base64,${b64}`;
+                break;
+              } else {
+                const errMsg = typeof data.error === 'string' ? data.error : (data.error?.message || '');
+                const isRAI = errMsg.includes('RAI') || errMsg.includes('safety') || errMsg.includes('policy');
+                if (isRAI && attempt < 2) {
+                  if (spinLabel) spinLabel.textContent = `⚠️ 안전 필터 차단 — 프롬프트 완화 중… (${attempt + 1}/2)`;
+                  const saferPrompt = await geminiChat(
+                    '아래 이미지 프롬프트가 안전 정책에 의해 차단됐습니다. 폭력·갈등·부정적 감정을 제거하고, 같은 장면을 중립적·긍정적으로 재작성해 주세요. 영어 프롬프트만 출력하세요.',
+                    [{ role: 'user', parts: [{ text: currentPrompt }] }]
+                  );
+                  currentPrompt = saferPrompt.replace(/^```[a-z]*\n?|```$/gm, '').trim();
+                  const promptEl2 = document.getElementById(`img-prompt-${idx}`);
+                  if (promptEl2) promptEl2.value = currentPrompt;
+                  continue;
+                }
+                
+                // 429 할당량 초과 또는 API 오류 시 Pollinations (Flux)로 즉시 폴백
+                if (spinLabel) spinLabel.textContent = '🌸 Pollinations (Flux 무료)로 자동 전환 생성 중…';
+                const pollRes = await fetch('/api/proxy/pollinations-image', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ prompt: window.applyNoText(currentPrompt), width: 1280, height: 720, model: 'flux' })
+                });
+                const pollData = await pollRes.json();
+                const pollB64 = pollData.image || pollData.predictions?.[0]?.bytesBase64Encoded;
+                if (pollRes.ok && pollB64) {
+                  rawSrc = `data:${pollData.mimeType || 'image/jpeg'};base64,${pollB64}`;
+                  break;
+                }
+                throw new Error(pollData.error || errMsg || '이미지 생성 실패');
               }
-              throw new Error(isRAI
-                ? `안전 필터 차단. 프롬프트에서 갈등·폭력·부정적 묘사를 줄여보세요.`
-                : (errMsg || JSON.stringify(data).slice(0, 200)));
+            } catch (err) {
+              // 네트워크 또는 기타 에러 시 Pollinations 재시도
+              if (spinLabel) spinLabel.textContent = '🌸 Pollinations(Flux)로 생성 중…';
+              const pollRes = await fetch('/api/proxy/pollinations-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: window.applyNoText(currentPrompt), width: 1280, height: 720, model: 'flux' })
+              });
+              const pollData = await pollRes.json();
+              const pollB64 = pollData.image || pollData.predictions?.[0]?.bytesBase64Encoded;
+              if (pollRes.ok && pollB64) {
+                rawSrc = `data:${pollData.mimeType || 'image/jpeg'};base64,${pollB64}`;
+                break;
+              }
+              if (attempt >= 2) throw err;
             }
-
-            const pred = data.predictions?.[0];
-            if (!pred?.bytesBase64Encoded) throw new Error('이미지 데이터 없음');
-            const mime = pred.mimeType || 'image/png';
-            rawSrc = `data:${mime};base64,${pred.bytesBase64Encoded}`;
-            break;
           }
         } catch (e) {
           if (attempt >= 2) throw e;
@@ -2650,21 +3868,40 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
       }
       if (!rawSrc) throw new Error('이미지 생성 실패');
 
-      // 자막 텍스트를 Canvas로 오버레이 (영어→한글 번역 → 문법 교정 후 적용)
-      let subText  = (document.getElementById(`img-sub-${idx}`)?.value ?? _imageCards[idx]?.subtitles ?? '').trim();
-      // 영어 자막이면 한글로 정확히 번역
-      subText = await translateSubtitleToKorean(subText);
-      // 한국어 문법 교정 적용
-      if (window.validateKoreanText && subText) {
-        subText = window.validateKoreanText(subText);
+      // 자막 삽입 여부 판단: 전역 ON + 개별 카드 활성화 상태일 때만 오버레이 합성
+      const card = (_imageCards && _imageCards[idx]) || {};
+      const isSubEnabled = _globalSubtitleOverlay && !card.subtitleDisabled;
+      let subText  = (document.getElementById(`img-sub-${idx}`)?.value ?? card.subtitles ?? '').trim();
+
+      let finalSrc = rawSrc;
+      if (isSubEnabled && subText) {
+        // 영어 자막이면 한글로 정확히 번역
+        subText = await translateSubtitleToKorean(subText);
+        // 한국어 문법 교정 적용
+        if (window.validateKoreanText && subText) {
+          subText = window.validateKoreanText(subText);
+        }
+        const subMax   = parseInt(document.getElementById(`sub-max-${idx}`)?.value || '30', 10);
+        finalSrc = await overlaySubtitle(rawSrc, subText, subMax);
       }
-      const subMax   = parseInt(document.getElementById(`sub-max-${idx}`)?.value || '30', 10);
-      const finalSrc = await overlaySubtitle(rawSrc, subText, subMax);
 
       imgEl.src = finalSrc;
-      imgEl.dataset.rawSrc = rawSrc; // 원본 보존 (자막 재적용용)
+      imgEl.dataset.rawSrc = rawSrc; // 원본 보존 (자막 재적용 및 즉시 토글용)
+      imgEl.dataset.hasSubtitle = (isSubEnabled && subText) ? 'true' : 'false';
       dlEl.href = finalSrc;
       dlEl.download = `imagen-${idx + 1}.png`;
+
+      // 자막 토글 버튼 상태 동기화
+      const toggleBtn = document.getElementById(`sub-toggle-btn-${idx}`);
+      if (toggleBtn) {
+        if (isSubEnabled && subText) {
+          toggleBtn.textContent = '💬 자막 제거';
+          toggleBtn.className = 'text-xs bg-indigo-700/80 hover:bg-indigo-600 text-indigo-100 font-bold px-3 py-1 rounded-lg transition';
+        } else {
+          toggleBtn.textContent = '💬 자막 삽입';
+          toggleBtn.className = 'text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold px-3 py-1 rounded-lg transition';
+        }
+      }
       // 버튼 표시
       const remotionBtn  = document.getElementById(`grok-remotion-${idx}`);
       const grokVideoBtn = document.getElementById(`grok-xai-video-${idx}`);
@@ -2921,6 +4158,7 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
     const imgEl = document.getElementById(`grok-img-el-${idx}`);
     const dlEl  = document.getElementById(`grok-dl-${idx}`);
     const remotionBtn = document.getElementById(`grok-remotion-${idx}`);
+    const toggleBtn = document.getElementById(`sub-toggle-btn-${idx}`);
     if (!imgEl || !imgEl.src || imgEl.src === window.location.href) return;
 
     const rawSrc = imgEl.dataset.rawSrc || imgEl.src;
@@ -2934,14 +4172,23 @@ chapters 배열에 ${chapters} 범위의 챕터를 채워주세요. 예시는 1�
     }
 
     let subText = subEl?.value.trim() ?? '';
+    if (!subText) {
+      alert('적용할 자막 텍스트가 없습니다. 아래 [자막 텍스트] 입력란을 작성해주세요.');
+      return;
+    }
     // 영어 자막이면 한글로 정확히 번역 → 문법 교정
     subText = await translateSubtitleToKorean(subText);
     if (window.validateKoreanText && subText) subText = window.validateKoreanText(subText);
     const subMax  = parseInt(document.getElementById(`sub-max-${idx}`)?.value || '30', 10);
     const finalSrc = await overlaySubtitle(rawSrc, subText, subMax);
     imgEl.src = finalSrc;
+    imgEl.dataset.hasSubtitle = 'true';
     dlEl.href = finalSrc;
     if (remotionBtn) remotionBtn.dataset.src = finalSrc;
+    if (toggleBtn) {
+      toggleBtn.textContent = '💬 자막 제거';
+      toggleBtn.className = 'text-xs bg-indigo-700/80 hover:bg-indigo-600 text-indigo-100 font-bold px-3 py-1 rounded-lg transition';
+    }
   };
 
   // ── 영상 내보내기 (브라우저 MediaRecorder — 세그먼트별 순차 자막) ──────
@@ -3645,7 +4892,7 @@ window.generateGrokVideo = async (idx) => {
           const config = await response.json();
           window.GEMINI_API_KEY = config.GEMINI_API_KEY;
           window.YOUTUBE_API_KEY = config.YOUTUBE_API_KEY;
-          window.GEMINI_MODEL = config.GEMINI_MODEL || 'gemini-2.5-flash';
+          window.GEMINI_MODEL = config.GEMINI_MODEL || 'gemini-3.1-flash-lite';
           console.log('✅ 서버에서 API 키를 로드했습니다.');
         }
       } catch (e) {
@@ -3657,73 +4904,7 @@ window.generateGrokVideo = async (idx) => {
   // 페이지 로드 시 API 키 자동 로드
   loadApiKeys();
 
-  // Gemini API 호출 함수
-  async function callGemini(promptText, options = {}) {
-    // API 키 자동 로드 시도
-    if (!window.GEMINI_API_KEY) {
-      await loadApiKeys();
-    }
-    
-    // 여러 소스에서 API 키 확인
-    let GEMINI_API_KEY = window.GEMINI_API_KEY || 
-                         localStorage.getItem('GEMINI_API_KEY') ||
-                         sessionStorage.getItem('GEMINI_API_KEY');
-    
-    // API 키가 없으면 서버에서 가져오기 시도
-    if (!GEMINI_API_KEY) {
-      try {
-        const response = await fetch('/api/config');
-        const config = await response.json();
-        GEMINI_API_KEY = config.GEMINI_API_KEY;
-        if (GEMINI_API_KEY) {
-          window.GEMINI_API_KEY = GEMINI_API_KEY;
-        }
-      } catch (e) {
-        console.log('서버에서 API 키를 가져오지 못했습니다:', e);
-      }
-      
-      // 여전히 API 키가 없으면 브라우저 prompt 사용
-      if (!GEMINI_API_KEY) {
-        try {
-          GEMINI_API_KEY = window.prompt('Gemini API 키를 입력해주세요:');
-          if (!GEMINI_API_KEY) {
-            throw new Error('Gemini API 키가 필요합니다.');
-          }
-          // 세션에 저장
-          sessionStorage.setItem('GEMINI_API_KEY', GEMINI_API_KEY);
-          window.GEMINI_API_KEY = GEMINI_API_KEY;
-        } catch (promptError) {
-          throw new Error('서버에 GEMINI_API_KEY를 설정하거나 브라우저에서 직접 입력해주세요.');
-        }
-      }
-    }
-    
-    const model = options.model || window.GEMINI_MODEL || 'gemini-2.5-flash';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
-    
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: promptText }] }],
-        generationConfig: {
-          temperature: options.temperature || 0.9,
-          maxOutputTokens: options.maxTokens || 8192,
-          topP: options.topP || 0.95,
-          topK: options.topK || 40
-        }
-      })
-    });
-    
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Gemini API 오류: ${error}`);
-    }
-    
-    const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  }
-  window.callGemini = callGemini;
+  // window.callGemini는 상단 공통 callGemini 함수 사용
 
   // 스크립트 이미지 전체 다운로드 함수 (API 키 필요 없음)
   window.downloadAllScriptImages = async () => {
@@ -4137,216 +5318,6 @@ window.generateGrokVideo = async (idx) => {
     return result.trim();
   };
 
-  // Gemini Imagen 이미지 생성 모달 열기
-  window.openGrokModal = () => {
-    const modal = document.getElementById('grokModal');
-    const modalBody = document.getElementById('grokModalBody');
-    
-    if (!modal || !modalBody) return;
-    
-    modal.classList.remove('hidden');
-    
-    // 이미지 카드가 없으면 초기화
-    if (!window._imageCards || window._imageCards.length === 0) {
-      window._imageCards = [];
-    }
-    
-    // Gemini Imagen 원본 UI 렌더링
-    modalBody.innerHTML = `
-      <div class="space-y-4">
-        <!-- 한국어 텍스트 문법 검증 옵션 -->
-        <div class="bg-slate-900/60 border border-slate-700 rounded-xl p-4">
-          <label class="flex items-start gap-3">
-            <input type="checkbox" id="koreanValidationCheck" checked
-                   class="mt-1 w-4 h-4 text-blue-600 bg-slate-700 border-slate-600 rounded focus:ring-blue-500 focus:ring-2">
-            <div>
-              <div class="text-sm font-semibold text-blue-300">한국어 텍스트 문법 검증</div>
-              <div class="text-xs text-slate-400 mt-1">이미지에 포함될 한국어 텍스트의 문법을 자동으로 검증하고 수정합니다</div>
-            </div>
-          </label>
-        </div>
-
-        <!-- 프롬프트 입력 -->
-        <div class="space-y-2">
-          <label class="text-xs font-semibold text-slate-300">프롬프트 (한국어 또는 영어)</label>
-          <textarea id="grokPromptInput" placeholder="생성하고 싶은 이미지를 설명하세요...\n예: 한국 전통 정원의 아름다운 풍경"
-                    class="w-full h-24 px-3 py-2 text-sm bg-slate-900/60 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
-        </div>
-
-        <!-- 배치 생성 옵션 -->
-        <div class="bg-slate-900/60 border border-slate-700 rounded-xl p-4">
-          <div class="text-xs font-semibold text-slate-300 mb-3">배치 생성 설정</div>
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="text-xs text-slate-400">생성 개수</label>
-              <select id="batchCount" class="w-full mt-1 px-2 py-1.5 text-xs bg-slate-800 border border-slate-600 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="1">1개</option>
-                <option value="2">2개</option>
-                <option value="3">3개</option>
-                <option value="4" selected>4개</option>
-                <option value="5">5개</option>
-                <option value="6">6개</option>
-              </select>
-            </div>
-            <div>
-              <label class="text-xs text-slate-400">이미지 크기</label>
-              <select id="imageSize" class="w-full mt-1 px-2 py-1.5 text-xs bg-slate-800 border border-slate-600 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="1024x1024">1:1 (1024×1024)</option>
-                <option value="1280x768" selected>16:9 (1280×768)</option>
-                <option value="768x1280">9:16 (768×1280)</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <!-- 생성 버튼 -->
-        <button onclick="generateGrokImages()" id="grokGenerateBtn"
-                class="w-full py-3 text-sm font-bold bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-lg transition-all transform hover:scale-[1.01] active:scale-[0.99] shadow-lg">
-          🎨 이미지 생성하기
-        </button>
-
-        <!-- 생성된 이미지 결과 -->
-        <div id="grokImageResults" class="hidden">
-          <div class="flex items-center justify-between mb-3">
-            <h4 class="text-sm font-semibold text-slate-300">생성된 이미지</h4>
-            <button onclick="downloadAllImages()" class="text-xs font-semibold px-3 py-1.5 bg-green-700/50 hover:bg-green-600 text-green-200 border border-green-700/60 rounded-lg transition">
-              📥 전체 다운로드
-            </button>
-          </div>
-          <div id="grokImageGrid" class="grid grid-cols-2 gap-3"></div>
-        </div>
-
-        <!-- 상태 메시지 -->
-        <div id="grokStatusMessage" class="hidden text-xs text-center py-2"></div>
-      </div>
-    `;
-  };
-
-  // 모달 닫기
-  window.closeGrokModal = () => {
-    const modal = document.getElementById('grokModal');
-    if (modal) modal.classList.add('hidden');
-  };
-
-  // 이미지 생성 함수
-  window.generateGrokImages = async () => {
-    const prompt = document.getElementById('grokPromptInput')?.value.trim();
-    if (!prompt) {
-      alert('프롬프트를 입력해주세요.');
-      return;
-    }
-
-    const koreanValidation = document.getElementById('koreanValidationCheck')?.checked;
-    const batchCount = parseInt(document.getElementById('batchCount')?.value || '4');
-    const imageSize = document.getElementById('imageSize')?.value || '1280x768';
-    
-    const btn = document.getElementById('grokGenerateBtn');
-    const statusEl = document.getElementById('grokStatusMessage');
-    const resultsEl = document.getElementById('grokImageResults');
-    const gridEl = document.getElementById('grokImageGrid');
-    
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = '⏳ 생성 중...';
-    }
-    
-    if (statusEl) {
-      statusEl.classList.remove('hidden');
-      statusEl.innerHTML = '<span class="text-blue-400">🔄 이미지를 생성하고 있습니다...</span>';
-    }
-    
-    try {
-      let finalPrompt = prompt;
-      
-      // 한국어 문법 검증 (체크된 경우)
-      if (koreanValidation && /[가-힣]/.test(prompt)) {
-        if (statusEl) {
-          statusEl.innerHTML = '<span class="text-yellow-400">📝 한국어 문법을 검증하고 있습니다...</span>';
-        }
-        
-        if (window.validateKoreanText) {
-          finalPrompt = window.validateKoreanText(prompt);
-          if (finalPrompt !== prompt) {
-            console.log('한국어 문법 수정:', prompt, '=>', finalPrompt);
-          }
-        }
-      }
-      
-      // 한국어를 영어로 번역
-      let englishPrompt = finalPrompt;
-      if (/[가-힣]/.test(finalPrompt)) {
-        if (statusEl) {
-          statusEl.innerHTML = '<span class="text-blue-400">🌐 프롬프트를 번역하고 있습니다...</span>';
-        }
-        
-        const response = await callGemini(
-          `Translate this Korean text to English for image generation. Output ONLY the English translation, no explanations:\n${finalPrompt}`
-        );
-        englishPrompt = response.trim();
-      }
-      
-      // 이미지 생성
-      const images = [];
-      if (gridEl) gridEl.innerHTML = '';
-      if (resultsEl) resultsEl.classList.remove('hidden');
-      
-      for (let i = 0; i < batchCount; i++) {
-        if (statusEl) {
-          statusEl.innerHTML = `<span class="text-blue-400">🎨 이미지 ${i + 1}/${batchCount} 생성 중...</span>`;
-        }
-        
-        try {
-          const imageData = await generateImageWithGemini(englishPrompt, imageSize);
-          if (imageData) {
-            images.push(imageData);
-            
-            // 이미지 표시
-            if (gridEl) {
-              const imgDiv = document.createElement('div');
-              imgDiv.className = 'relative group';
-              imgDiv.innerHTML = `
-                <img src="${imageData}" class="w-full rounded-lg border border-slate-700" />
-                <div class="absolute top-2 right-2 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <span class="px-2 py-1 text-xs bg-black/70 text-white rounded-lg font-semibold">${i + 1}.png</span>
-                  <button onclick="downloadImage('${imageData}', '${i + 1}.png')" 
-                          class="px-2 py-1 text-xs bg-black/70 hover:bg-black/90 text-white rounded-lg transition">
-                    💾 저장
-                  </button>
-                </div>
-              `;
-              gridEl.appendChild(imgDiv);
-            }
-          }
-        } catch (err) {
-          console.error(`이미지 ${i + 1} 생성 실패:`, err);
-        }
-      }
-      
-      // 이미지 카드에 저장
-      window._imageCards = images.map((src, i) => ({
-        prompt: englishPrompt,
-        koreanPrompt: prompt,
-        imageSrc: src,
-        index: i
-      }));
-      
-      if (statusEl) {
-        statusEl.innerHTML = `<span class="text-green-400">✅ ${images.length}개의 이미지가 성공적으로 생성되었습니다!</span>`;
-      }
-      
-    } catch (error) {
-      console.error('이미지 생성 오류:', error);
-      if (statusEl) {
-        statusEl.innerHTML = `<span class="text-red-400">❌ 오류: ${error.message}</span>`;
-      }
-    } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = '🎨 이미지 생성하기';
-      }
-    }
-  };
-
   // ── 생성 이미지에서 글자/자막 아티팩트 억제 ──────────────────────────
   //  AI가 이미지 안에 멋대로 그려넣는 글자·워터마크를 없애 "글자 없는" 깨끗한
   //  이미지를 만든다. 실제 자막은 나중에 overlaySubtitle()로 따로 삽입한다.
@@ -4387,56 +5358,122 @@ window.generateGrokVideo = async (idx) => {
   window.stripTextInstructions = stripTextInstructions;
   window.NO_TEXT_NEGATIVE = NO_TEXT_NEGATIVE;
 
-  // 이미지 생성 (Imagen, Stable Diffusion, 또는 Pollinations)
-  async function generateImageWithGemini(prompt, size = '1280x768') {
+  // 이미지 생성 (Local SD, Imagen, Stable Diffusion, 또는 Pollinations)
+  async function generateImageWithGemini(prompt, size = '1280x768', styleKey = null) {
     // 아시아인/한국인 기본 적용 (서양인 컨텍스트 제외)
-    const processedPrompt = window.applyAsianDefault ? window.applyAsianDefault(prompt) : prompt;
+    let processedPrompt = window.applyAsianDefault ? window.applyAsianDefault(prompt) : prompt;
+    processedPrompt = window.applyStylePreset(processedPrompt, styleKey);
 
     // IMAGE_MODEL에 따라 분기
+    if (IMAGE_MODEL === 'comfyui') {
+      try {
+        const [width, height] = size.split('x').map(Number);
+        return await generateComfyUIImage(processedPrompt, {
+          width: width || 768,
+          height: height || 448,
+          steps: 20,
+          cfg: 7.0,
+          negative_prompt: window.getStyleNegativePrompt(styleKey)
+        });
+      } catch (e) {
+        console.warn('ComfyUI failed, falling back to Pollinations:', e);
+      }
+    }
+    if (IMAGE_MODEL === 'local-sd') {
+      try {
+        return await generateImageWithLocalSD(processedPrompt, size, styleKey);
+      } catch (e) {
+        console.warn('Local SD failed, falling back to Pollinations:', e);
+      }
+    }
     if (IMAGE_MODEL === 'stability' && STABILITY_API_KEY) {
-      return await generateImageWithStability(processedPrompt, size);
+      try {
+        return await generateImageWithStability(processedPrompt, size, styleKey);
+      } catch (e) {
+        console.warn('Stability AI image failed, falling back to Pollinations:', e);
+      }
     }
     if (IMAGE_MODEL === 'pollinations') {
-      return await generateImageWithPollinations(processedPrompt, size);
+      return await generateImageWithPollinations(processedPrompt, size, styleKey);
     }
-    // 기본: Gemini Imagen
-    const response = await fetch('/api/proxy/gemini-image', {
+    // 기본: Gemini Imagen 시도 후 실패 시 자동 폴백
+    try {
+      const response = await fetch('/api/proxy/gemini-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: window.applyNoText(processedPrompt),
+          model: 'imagen-3.0-generate-002'
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const b64 = data.predictions?.[0]?.bytesBase64Encoded || data.image;
+        if (b64) {
+          return `data:${data.mimeType || 'image/png'};base64,` + b64;
+        }
+      }
+    } catch (e) {
+      console.warn('Gemini image failed, falling back to Pollinations:', e);
+    }
+
+    // 폴백: Pollinations
+    return await generateImageWithPollinations(processedPrompt, size, styleKey);
+  }
+
+  // 내 PC Local Stable Diffusion으로 이미지 생성 (MPS Apple Silicon GPU)
+  async function generateImageWithLocalSD(prompt, size = '1280x768', styleKey = null) {
+    const [width, height] = size.split('x').map(Number);
+    let aspectRatio = '16:9';
+    if (size === '1024x1024') aspectRatio = '1:1';
+    else if (size === '768x1280' || size === '720x1280') aspectRatio = '9:16';
+
+    const styledPrompt = window.applyStylePreset(prompt, styleKey);
+    const negativePrompt = window.getStyleNegativePrompt(styleKey);
+
+    const response = await fetch('/api/proxy/local-sd', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        prompt: window.applyNoText(processedPrompt),
-        model: 'imagen-4.0-fast-generate-001'
+        prompt: window.applyNoText(styledPrompt),
+        negative_prompt: negativePrompt,
+        width: width || 768,
+        height: height || 432,
+        aspect_ratio: aspectRatio,
+        steps: 4
       })
     });
 
     if (!response.ok) {
       const error = await response.text();
-      throw new Error('이미지 생성 실패: ' + error);
+      throw new Error('Local SD 이미지 생성 실패: ' + error);
     }
 
     const data = await response.json();
-    // Imagen API는 predictions 배열을 반환함
-    const predictions = data.predictions || [];
-    if (predictions.length > 0 && predictions[0].bytesBase64Encoded) {
-      return 'data:image/png;base64,' + predictions[0].bytesBase64Encoded;
+    if (data.image) {
+      return 'data:image/png;base64,' + data.image;
     }
     return null;
   }
 
-  // Stable Diffusion으로 이미지 생성
-  async function generateImageWithStability(prompt, size = '1280x768') {
+  // Stable Diffusion (Stability AI)으로 이미지 생성
+  async function generateImageWithStability(prompt, size = '1280x768', styleKey = null) {
     // size를 aspect_ratio로 변환
     let aspectRatio = '16:9';
     if (size === '1024x1024') aspectRatio = '1:1';
     else if (size === '768x1280' || size === '720x1280') aspectRatio = '9:16';
     else if (size === '1280x768' || size === '1920x1080') aspectRatio = '16:9';
 
+    const styledPrompt = window.applyStylePreset(prompt, styleKey);
+    const negativePrompt = window.getStyleNegativePrompt(styleKey);
+
     const response = await fetch('/api/proxy/stability-image', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        prompt: window.applyNoText(prompt),
-        negative_prompt: window.NO_TEXT_NEGATIVE,
+        prompt: window.applyNoText(styledPrompt),
+        negative_prompt: negativePrompt,
         model: 'sd3.5-large',
         aspect_ratio: aspectRatio,
         output_format: 'png'
@@ -4444,8 +5481,14 @@ window.generateGrokVideo = async (idx) => {
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new Error('Stable Diffusion 이미지 생성 실패: ' + error);
+      let errText = '';
+      try {
+        const errJson = await response.json();
+        errText = errJson.errors?.[0] || errJson.error || errJson.message || JSON.stringify(errJson);
+      } catch (_) {
+        errText = await response.text();
+      }
+      throw new Error(`Stable Diffusion (Stability AI) 오류 (${response.status}): ${errText}`);
     }
 
     const data = await response.json();
@@ -4457,14 +5500,15 @@ window.generateGrokVideo = async (idx) => {
   }
 
   // Pollinations.ai로 이미지 생성 (무료, API 키 불필요)
-  async function generateImageWithPollinations(prompt, size = '1280x768') {
+  async function generateImageWithPollinations(prompt, size = '1280x768', styleKey = null) {
     const [width, height] = size.split('x').map(Number);
+    const styledPrompt = window.applyStylePreset(prompt, styleKey);
 
     const response = await fetch('/api/proxy/pollinations-image', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        prompt: window.applyNoText(prompt),
+        prompt: window.applyNoText(styledPrompt),
         width: width || 1280,
         height: height || 720,
         model: 'flux'
@@ -4486,22 +5530,26 @@ window.generateGrokVideo = async (idx) => {
   // 이미지 모델 변경 함수
   window.setImageModel = (model) => {
     IMAGE_MODEL = model;
+    const btnComfyui = document.getElementById('imgModelComfyui');
     const btnImagen = document.getElementById('imgModelImagen');
     const btnStability = document.getElementById('imgModelStability');
     const btnPollinations = document.getElementById('imgModelPollinations');
-    const onClass = 'bg-blue-600 text-white border-blue-500';
-    const offClass = 'bg-slate-700 text-slate-300 border-slate-600';
+    const btnLocalSd = document.getElementById('imgModelLocalSd');
+    const onClass = 'py-1.5 px-2 text-xs font-bold rounded-lg transition bg-blue-600 text-white border-blue-500 truncate';
+    const offClass = 'py-1.5 px-2 text-xs font-bold rounded-lg transition bg-slate-700 text-slate-300 border-slate-600 truncate';
 
     const buttons = [
+      { el: btnComfyui, name: 'comfyui' },
+      { el: btnPollinations, name: 'pollinations' },
+      { el: btnLocalSd, name: 'local-sd' },
       { el: btnImagen, name: 'imagen' },
-      { el: btnStability, name: 'stability' },
-      { el: btnPollinations, name: 'pollinations' }
+      { el: btnStability, name: 'stability' }
     ];
 
     buttons.forEach(btn => {
       if (btn.el) {
         const isActive = btn.name === model;
-        btn.el.className = `flex-1 py-1.5 text-xs font-bold rounded-lg transition ${isActive ? onClass : offClass}`;
+        btn.el.className = isActive ? onClass : offClass;
       }
     });
   };
@@ -5457,201 +6505,6 @@ ${scriptText}`;
     }
   }
 
-
-  // ── Gemini 이미지 생성 모달 함수들 ──────────────────────────────
-  window.openGrokModal = () => {
-    const modal = document.getElementById('grokModal');
-    const modalBody = document.getElementById('grokModalBody');
-    
-    if (!modal || !modalBody) return;
-    
-    // 기존 상태 초기화
-    modal.classList.remove('hidden');
-    
-    // Gemini Imagen 원본 UI로 복원
-    renderGrokModal(window._imageCards || []);
-  };
-
-  // 스크립트 이미지 목록 생성 함수
-  function generateScriptImagesList() {
-    if (!window._imageCards || _imageCards.length === 0) {
-      return `
-        <div class="text-center py-8 text-slate-500">
-          <p class="text-lg mb-2">📝</p>
-          <p>생성된 스크립트 카드가 없습니다.</p>
-          <p class="text-sm mt-2">먼저 유튜브 검색을 통해 스크립트를 생성해주세요.</p>
-        </div>
-      `;
-    }
-    
-    return _imageCards.map((card, index) => {
-      const imgEl = document.getElementById(`grok-img-el-${index}`);
-      const hasImage = imgEl && imgEl.src && imgEl.src.startsWith('data:image/');
-      const hasVideo = card.flowVideoUrl || card.grokVideoUrl;
-      
-      return `
-        <div class="bg-slate-900/60 border border-slate-700 rounded-xl p-4 mb-3">
-          <div class="flex items-center justify-between mb-2">
-            <h4 class="text-sm font-bold text-slate-200">
-              📌 ${card.chapterTitle || `장면 ${index + 1}`}
-            </h4>
-            <div class="flex gap-2">
-              <span class="text-xs px-2 py-1 rounded-full ${hasImage ? 'bg-green-900/50 text-green-400' : 'bg-slate-700 text-slate-400'}">
-                ${hasImage ? '🖼️ 이미지' : '⏳ 대기'}
-              </span>
-              ${hasVideo ? `
-                <span class="text-xs px-2 py-1 rounded-full bg-purple-900/50 text-purple-400">
-                  🎥 영상
-                </span>
-              ` : ''}
-            </div>
-          </div>
-          
-          ${card.prompt || card.cutDescription ? `
-            <p class="text-xs text-slate-400 mb-3 line-clamp-2">
-              ${(card.prompt || card.cutDescription || '').substring(0, 100)}...
-            </p>
-          ` : ''}
-          
-          <!-- 이미지 미리보기 (있는 경우) -->
-          ${hasImage ? `
-            <div class="mb-3 rounded-lg overflow-hidden border border-slate-600" style="max-height: 120px;">
-              <img src="${imgEl.src}" alt="장면 ${index + 1}" class="w-full h-full object-cover">
-            </div>
-          ` : ''}
-          
-          <!-- 영상 상태 표시 -->
-          <div id="video-status-${index}" class="text-xs text-slate-400 mb-2 hidden"></div>
-          
-          <div class="grid grid-cols-2 gap-2">
-            <!-- 이미지 관련 버튼 -->
-            <button onclick="generateSingleScriptImage(${index})" 
-              class="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-2 rounded-lg transition">
-              ${hasImage ? '🔄 이미지 재생성' : '🎨 이미지 생성'}
-            </button>
-            
-            <!-- Flow Factory 영상 변환 버튼 -->
-            ${hasImage ? `
-              <button id="flow-video-btn-${index}" onclick="generateFlowVideo(${index})" 
-                class="bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold py-2 rounded-lg transition">
-                ${hasVideo ? '🔄 영상 재생성' : '🎬 영상 변환'}
-              </button>
-            ` : `
-              <button disabled 
-                class="bg-slate-700 text-slate-500 text-xs font-bold py-2 rounded-lg cursor-not-allowed">
-                🎬 이미지 먼저 생성
-              </button>
-            `}
-          </div>
-          
-          <!-- 다운로드 버튼들 -->
-          ${hasImage || hasVideo ? `
-            <div class="flex gap-2 mt-2">
-              ${hasImage ? `
-                <button onclick="downloadSingleScriptImage(${index})" 
-                  class="flex-1 bg-green-600 hover:bg-green-500 text-white text-xs font-bold py-1.5 rounded-lg transition">
-                  ⬇️ 이미지
-                </button>
-              ` : ''}
-              ${hasVideo ? `
-                <button onclick="downloadSingleVideo(${index})" 
-                  class="flex-1 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold py-1.5 rounded-lg transition">
-                  ⬇️ 영상
-                </button>
-              ` : ''}
-            </div>
-          ` : ''}
-        </div>
-      `;
-    }).join('');
-  }
-
-  // 단일 스크립트 이미지 생성
-  window.generateSingleScriptImage = async (index) => {
-    const statusEl = document.getElementById('imageGenerationStatus');
-    if (statusEl) statusEl.textContent = `🎨 장면 ${index + 1} 이미지 생성 중...`;
-    
-    try {
-      // 기존 이미지 생성 로직 사용
-      await generateSingleGrokImage(index);
-      
-      // UI 새로고침
-      setTimeout(() => {
-        const modalBody = document.getElementById('grokModalBody');
-        if (modalBody) {
-          modalBody.innerHTML = modalBody.innerHTML.replace(
-            document.getElementById('scriptImagesList').innerHTML,
-            generateScriptImagesList()
-          );
-        }
-      }, 1000);
-      
-      if (statusEl) statusEl.textContent = `✅ 장면 ${index + 1} 이미지 생성 완료!`;
-    } catch (error) {
-      if (statusEl) statusEl.textContent = `❌ 생성 실패: ${error.message}`;
-    }
-  };
-
-  // 전체 스크립트 이미지 생성
-  window.generateAllScriptImages = async () => {
-    if (!window._imageCards || _imageCards.length === 0) return;
-    
-    const statusEl = document.getElementById('imageGenerationStatus');
-    
-    for (let i = 0; i < _imageCards.length; i++) {
-      if (statusEl) statusEl.textContent = `🎨 전체 생성 중... (${i + 1}/${_imageCards.length})`;
-      
-      try {
-        await generateSingleGrokImage(i);
-      } catch (error) {
-        console.warn(`이미지 ${i + 1} 생성 실패:`, error);
-      }
-      
-      // 잠시 대기 (API 레이트 리미트 방지)
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    }
-    
-    if (statusEl) statusEl.textContent = '✅ 전체 이미지 생성 완료!';
-    
-    // UI 새로고침
-    setTimeout(() => {
-      const modalBody = document.getElementById('grokModalBody');
-      if (modalBody && modalBody.innerHTML.includes('scriptImagesList')) {
-        openGrokModal(); // 모달 다시 열기
-      }
-    }, 1000);
-  };
-
-  // 단일 스크립트 이미지 다운로드
-  window.downloadSingleScriptImage = (index) => {
-    const imgEl = document.getElementById(`grok-img-el-${index}`);
-    if (!imgEl || !imgEl.src || !imgEl.src.startsWith('data:image/')) return;
-    
-    const link = document.createElement('a');
-    const card = _imageCards[index];
-    const fileName = `script-image-${index + 1}-${(card?.chapterTitle || 'scene').replace(/[^a-zA-Z0-9가-힣]/g, '_')}.png`;
-    
-    link.download = fileName;
-    link.href = imgEl.src;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // 전체 스크립트 이미지 다운로드 (기존 ZIP 다운로드 함수 활용)
-  window.downloadAllScriptImages = () => {
-    if (typeof downloadAllImagesAsZip === 'function') {
-      downloadAllImagesAsZip();
-    } else {
-      alert('다운로드 기능을 사용할 수 없습니다.');
-    }
-  };
-
-  window.closeGrokModal = () => {
-    const modal = document.getElementById('grokModal');
-    if (modal) modal.classList.add('hidden');
-  };
-
   // ── 한국어 문법 검증 함수 (강화된 버전) ──────────────────────────────────────
   window.validateKoreanText = (text) => {
     if (!text || typeof text !== 'string') return text;
@@ -5824,8 +6677,8 @@ ${scriptText}`;
         englishPrompt += `, ${style}`;
       }
 
-      // 4. 이미지 생성 (Gemini Imagen 4.0)
-      statusEl.textContent = '🎨 Gemini Imagen 4.0으로 이미지 생성 중... (30-60초 소요)';
+      // 4. 이미지 생성 (Gemini Imagen 또는 폴백)
+      statusEl.textContent = '🎨 AI 이미지 생성 중... (10-30초 소요)';
       
       const size = sizeSelect?.value || '1024x1024';
       const [width, height] = size.split('x').map(Number);
@@ -5835,9 +6688,8 @@ ${scriptText}`;
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: englishPrompt,
-          width: width,
-          height: height,
-          model: 'imagen-4'
+          width: width || 1024,
+          height: height || 1024
         })
       });
 
@@ -5847,14 +6699,16 @@ ${scriptText}`;
       }
 
       const imageData = await imageResponse.json();
-      const imageBase64 = imageData.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      const imageBase64 = imageData.predictions?.[0]?.bytesBase64Encoded
+                       || imageData.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data
+                       || imageData.image;
 
       if (!imageBase64) {
         throw new Error('이미지 데이터를 받지 못했습니다.');
       }
 
       // 5. 결과 표시
-      const imageUrl = `data:image/jpeg;base64,${imageBase64}`;
+      const imageUrl = `data:${imageData.mimeType || 'image/jpeg'};base64,${imageBase64}`;
       const preview = document.getElementById('imagePreview');
       
       preview.innerHTML = `

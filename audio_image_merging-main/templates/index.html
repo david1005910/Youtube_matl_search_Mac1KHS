@@ -1,0 +1,1058 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WaveStudio Pro | 씬별 나레이션 자막 & 오디오 비디오 생성기</title>
+  <meta name="description" content="나레이션 대본 텍스트를 업로드하여 이미지 및 동영상 씬에 맞추어 자막을 자동 배분하고 고화질 1080p 비디오를 렌더링하는 풀스택 웹 스튜디오입니다.">
+  <link rel="stylesheet" href="/static/css/style.css?v=3.3">
+</head>
+<body>
+  <div class="app-wrapper">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand-group">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24">
+            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+          </svg>
+        </div>
+        <div class="brand-info">
+          <h1>WaveStudio <span class="brand-badge">Scene & Narration Pro</span></h1>
+          <p>나레이션 대본과 다중 이미지/동영상을 결합하여 1080p 자막 비디오를 제작합니다.</p>
+        </div>
+      </div>
+      <div class="header-meta">
+        <button type="button" class="btn-quick-notebooklm" id="btnQuickNotebookLM" title="영어/외국어 동영상을 한국어로 친절히 설명해주는 AI Audio Overview 생성 화면으로 바로 이동">
+          <span class="sparkle-icon">✨</span>
+          <span>동영상 AI 한국어 해설 바로가기</span>
+        </button>
+        <div class="status-pill">
+          <span class="status-beacon"></span>
+          <span>엔진 대기 중 (Ready)</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Top Mode Switch Tabs -->
+    <div class="studio-tabs">
+      <button type="button" class="studio-tab-btn highlight-tab-yt" id="tabYoutubeOverview" data-tab="youtube">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
+        </svg>
+        <span>🎙️ 외국어 동영상 충실 번역 & 맞춤 나레이션 (Faithful Translation)</span>
+        <span class="tab-highlight-badge">원문 충실 번역 & 시간 제어</span>
+      </button>
+      <button type="button" class="studio-tab-btn active" id="tabRemotionStudio" data-tab="remotion">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12zM12 5.5v9l6-4.5-6-4.5z"/>
+        </svg>
+        <span>🎬 Remotion 멀티트랙 스튜디오 (Timeline Editor)</span>
+      </button>
+      <button type="button" class="studio-tab-btn" id="tabSceneStudio" data-tab="scene">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/>
+        </svg>
+        <span>📝 씬 & 나레이션 자막 스튜디오 (Multi-Scene Subtitles)</span>
+      </button>
+      <button type="button" class="studio-tab-btn" id="tabClassicStudio" data-tab="classic">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M3 17h2v-4H3v4zm4 4h2V7H7v14zm4-8h2V3h-2v10zm4 4h2V9h-2v8zm4-2h2v-4h-2v4z"/>
+        </svg>
+        <span>⚡ 클래식 비디오 모드 (Waveform & Overlay)</span>
+      </button>
+    </div>
+
+    <!-- ===================================================
+         MODE 0: Remotion Multi-Track Timeline Studio
+         =================================================== -->
+    <div id="remotionStudioView" class="remotion-studio-view">
+      <!-- Upper Section: 16:9 Canvas Preview & Inspector Panel -->
+      <div class="remotion-top-row">
+        <!-- Player Panel -->
+        <div class="panel remotion-player-panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="color:var(--accent-cyan)">
+                <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+              </svg>
+              <span>1080p 실시간 캔버스 프리뷰 (Remotion Player)</span>
+            </div>
+            <span class="panel-hint">16:9 Full HD (1920×1080)</span>
+          </div>
+
+          <div class="remotion-canvas-wrapper">
+            <canvas id="remotionCanvas" width="1920" height="1080"></canvas>
+          </div>
+
+          <!-- Transport Bar -->
+          <div class="remotion-transport-bar">
+            <div class="transport-playback-btns">
+              <button type="button" class="btn-transport" id="remBtnStop" title="처음으로 / 정지">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h12v12H6z"/></svg>
+              </button>
+              <button type="button" class="btn-transport-play" id="remBtnPlay" title="재생 / 일시정지 (스페이스바)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              </button>
+              <span class="remotion-timecode" id="remTimecode">0:00.0 / 0:15.0</span>
+            </div>
+
+            <div class="transport-zoom-ctrl">
+              <span class="zoom-label">🔍 줌:</span>
+              <input type="range" id="remZoomSlider" min="15" max="80" step="5" value="35" title="타임라인 확대/축소">
+            </div>
+          </div>
+        </div>
+
+        <!-- Inspector Panel -->
+        <div class="panel remotion-inspector-panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="color:var(--accent-purple)">
+                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+              </svg>
+              <span>클립 속성 인스펙터 (Inspector)</span>
+            </div>
+            <span class="panel-hint" id="remInspClipType">선택된 클립 속성</span>
+          </div>
+
+          <!-- Empty State -->
+          <div class="inspector-empty" id="remInspectorEmpty">
+            <div class="inspector-empty-icon">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M15 15l6 6m-11-4a7 7 0 110-14 7 7 0 010 14z"/>
+              </svg>
+            </div>
+            <p>타임라인에서 클립(이미지, 오디오, 자막)을 클릭하면 세부 속성을 실시간으로 편집할 수 있습니다.</p>
+          </div>
+
+          <!-- Active Content State -->
+          <div class="inspector-content" id="remInspectorContent" style="display: none;">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label" for="remInspStart">시작 시간 (초)</label>
+                <input type="number" id="remInspStart" class="form-input" min="0" step="0.1" value="0.0">
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="remInspDuration">길이 (초)</label>
+                <input type="number" id="remInspDuration" class="form-input" min="0.5" step="0.1" value="3.0">
+              </div>
+            </div>
+
+            <!-- Subtitle Specific Settings -->
+            <div id="remInspSubSection" style="display: none;">
+              <div class="form-group">
+                <label class="form-label" for="remInspSubText">자막 텍스트 내용</label>
+                <textarea id="remInspSubText" class="form-textarea" rows="3" placeholder="자막 내용을 입력하세요"></textarea>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label" for="remInspSubSize">글꼴 크기 (px)</label>
+                  <input type="number" id="remInspSubSize" class="form-input" min="16" max="72" step="2" value="32">
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="remInspSubColor">글자 색상</label>
+                  <div class="color-input-wrapper">
+                    <input type="color" id="remInspSubColor" value="#00f2fe">
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label" for="remInspSubBg">배경 스타일</label>
+                  <select id="remInspSubBg" class="form-select">
+                    <option value="box">반투명 박스 (Box)</option>
+                    <option value="shadow">외곽선 그림자 (Shadow)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="remInspSubPos">자막 수직 위치</label>
+                  <select id="remInspSubPos" class="form-select">
+                    <option value="bottom">하단 (Bottom)</option>
+                    <option value="center">중앙 (Center)</option>
+                    <option value="top">상단 (Top)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Audio Specific Settings -->
+            <div id="remInspAudioSection" style="display: none;">
+              <div class="form-group">
+                <div class="form-label-row">
+                  <label class="form-label" for="remInspAudioVol">오디오 볼륨</label>
+                  <span class="val-badge" id="remInspAudioVolVal">100%</span>
+                </div>
+                <input type="range" id="remInspAudioVol" min="0" max="2.0" step="0.05" value="1.0">
+              </div>
+            </div>
+          </div>
+
+          <!-- Export Timeline Video Action -->
+          <div class="inspector-export-row">
+            <button type="button" class="btn-generate btn-rem-export" id="remBtnExport">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/>
+              </svg>
+              <span>🎬 1080p MP4 타임라인 비디오 인코딩 내보내기</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lower Section: Multi-Track Timeline -->
+      <div class="panel remotion-timeline-panel">
+        <div class="timeline-toolbar">
+          <div class="timeline-tools-left">
+            <button type="button" class="btn-timeline-tool btn-tool-visual" id="remBtnAddImage">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+              <span>+ 이미지/영상 클립 추가</span>
+            </button>
+            <input type="file" id="remInputAddImage" class="file-input-hidden" multiple accept="image/*,video/*,.jpg,.jpeg,.png,.webp,.mp4,.mov">
+
+            <button type="button" class="btn-timeline-tool btn-tool-audio" id="remBtnAddAudio">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+              <span>+ 오디오/음악 클립 추가</span>
+            </button>
+            <input type="file" id="remInputAddAudio" class="file-input-hidden" multiple accept="audio/*,.mp3,.wav,.m4a,.flac,.aac">
+
+            <button type="button" class="btn-timeline-tool btn-tool-subtitle" id="remBtnAddSubtitle">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v12H4V6zm2 2v2h12V8H6zm0 4v2h8v-2H6z"/></svg>
+              <span>+ 재생헤드 위치에 자막 클립 추가</span>
+            </button>
+          </div>
+
+          <div class="timeline-tools-right">
+            <button type="button" class="btn-timeline-tool btn-tool-sub-export" id="remBtnExportSrt" title="현재 타임라인의 자막을 SRT 자막 파일로 내보내기">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM4 12h4v2H4v-2zm10 6H4v-2h10v2zm6 0h-4v-2h4v2zm0-4H10v-2h10v2z"/></svg>
+              <span>자막 (.srt)</span>
+            </button>
+            <button type="button" class="btn-timeline-tool btn-tool-txt-export" id="remBtnExportTxt" title="현재 타임라인의 자막을 TXT 대본 파일로 내보내기">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+              <span>대본 (.txt)</span>
+            </button>
+            <button type="button" class="btn-timeline-tool btn-tool-split" id="remBtnSplit" title="현재 재생헤드 위치에서 선택된 클립 분할">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+              <span>✂️ 클립 분할</span>
+            </button>
+            <button type="button" class="btn-timeline-tool btn-tool-delete" id="remBtnDeleteClip" title="선택된 클립 삭제">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+              <span>🗑️ 클립 삭제</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Timeline Multi-Track Container -->
+        <div class="remotion-timeline-container">
+          <!-- Left Track Headers Column -->
+          <div class="timeline-track-headers">
+            <div class="track-header-cell ruler-spacer">
+              <span>트랙 목록</span>
+            </div>
+            <div class="track-header-cell track-header-visual">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+              <span>비주얼 트랙</span>
+            </div>
+            <div class="track-header-cell track-header-audio">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+              <span>오디오 트랙</span>
+            </div>
+            <div class="track-header-cell track-header-subtitle">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v12H4V6zm2 2v2h12V8H6zm0 4v2h8v-2H6z"/></svg>
+              <span>자막 트랙</span>
+            </div>
+          </div>
+
+          <!-- Scrollable Tracks & Ruler Area -->
+          <div class="timeline-scroll-area" id="remTracksArea">
+            <!-- Time Ruler -->
+            <div class="timeline-ruler" id="remTimelineRuler"></div>
+
+            <!-- Playhead -->
+            <div class="timeline-playhead" id="remPlayhead">
+              <div class="playhead-cap"></div>
+              <div class="playhead-line"></div>
+            </div>
+
+            <!-- Track Lanes -->
+            <div class="timeline-track-lane lane-visual" id="remTrackVisual"></div>
+            <div class="timeline-track-lane lane-audio" id="remTrackAudio"></div>
+            <div class="timeline-track-lane lane-subtitle" id="remTrackSubtitle"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Shared Anchor for Monitor, Results, and Library -->
+      <div id="remotionSharedAnchor"></div>
+    </div>
+
+    <!-- ===================================================
+         MODE 4: YouTube Multi-Source AI Korean Explainer Audio
+         =================================================== -->
+    <div id="youtubeOverviewView" class="youtube-overview-view" style="display: none;">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" style="color:#ff0055">
+              <path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z"/>
+            </svg>
+            <span>🎙️ YouTube 동영상 AI 한국어 심층 해설 (Audio Overview)</span>
+          </div>
+          <span class="panel-hint">외국어 영상 원본 충실 번역 & 사용자 지정 시간 맞춤형 한국어 나레이션</span>
+        </div>
+
+        <!-- Feature Intro Banner -->
+        <div class="yt-feature-banner">
+          <div class="banner-badge">Faithful Korean Translation & Narration Engine</div>
+          <h3>외국어 동영상 원본 충실 번역 & 시간 맞춤형 한국어 나레이션</h3>
+          <p>
+            분석하고 싶은 외국어(영어 등) YouTube 영상 링크를 입력하세요. 
+            원작자의 설명과 의도에 입각하여 <strong>왜곡 없이 충실히 번역(Faithful Translation)</strong>하고, 
+            <strong>희망하는 나레이션 시간(1분, 2분, 3분, 5분 또는 초 단위 직접 입력)</strong>에 정확히 맞추어 
+            한국어 전문 나레이션 음성(Edge-TTS)과 Remotion 1080p 타임라인을 자동 생성합니다.
+          </p>
+        </div>
+
+        <div class="yt-input-layout">
+          <div class="yt-form-column">
+            <div class="form-group">
+              <label class="form-label" for="ytUrlsInput">
+                <span>번역할 YouTube 영상 링크 (외국어/영어 영상 권장)</span>
+                <span class="req-badge">필수</span>
+              </label>
+              <textarea id="ytUrlsInput" class="form-textarea yt-urls-textarea" rows="3" placeholder="번역하고 싶은 YouTube 영상 URL을 입력하세요. (단일 영상 충실 번역 또는 다중 영상 교차 분석)&#10;예시:&#10;https://www.youtube.com/watch?v=dQw4w9WgXcQ"></textarea>
+              <div class="form-hint">원작자의 설명 순서와 논리를 있는 그대로 살려 듣기 편한 자연스러운 한국어 구어체로 충실히 번역합니다.</div>
+            </div>
+
+            <!-- Target Narration Duration Control Group -->
+            <div class="form-group yt-duration-container">
+              <div class="form-label-row">
+                <label class="form-label">
+                  <span>⏱️ 나레이션 희망 시간 설정 (Target Narration Duration)</span>
+                  <span class="req-badge">시간 맞춤형</span>
+                </label>
+                <span class="val-badge" id="ytDurationValBadge">3분 (180초)</span>
+              </div>
+              <div class="duration-preset-group" id="ytDurationPresetGroup">
+                <button type="button" class="btn-duration-preset" data-duration="original" id="ytBtnOriginalDuration">
+                  <span class="d-icon">🎬</span>
+                  <span class="d-label">원본 영상 맞춤</span>
+                  <span class="d-sub">원본 길이 100% 일치</span>
+                  <span class="d-badge-rec">추천</span>
+                </button>
+                <button type="button" class="btn-duration-preset" data-duration="60">
+                  <span class="d-icon">⚡</span>
+                  <span class="d-label">1분 핵심 번역</span>
+                  <span class="d-sub">60초 (~260자)</span>
+                </button>
+                <button type="button" class="btn-duration-preset" data-duration="120">
+                  <span class="d-icon">🎯</span>
+                  <span class="d-label">2분 균형 번역</span>
+                  <span class="d-sub">120초 (~520자)</span>
+                </button>
+                <button type="button" class="btn-duration-preset active" data-duration="180">
+                  <span class="d-icon">📖</span>
+                  <span class="d-label">3분 상세 번역</span>
+                  <span class="d-sub">180초 (~780자)</span>
+                  <span class="d-badge-def">기본</span>
+                </button>
+                <button type="button" class="btn-duration-preset" data-duration="300">
+                  <span class="d-icon">📚</span>
+                  <span class="d-label">5분 심층 번역</span>
+                  <span class="d-sub">300초 (~1300자)</span>
+                </button>
+                <button type="button" class="btn-duration-preset" data-duration="custom" id="ytBtnCustomDuration">
+                  <span class="d-icon">⚙️</span>
+                  <span class="d-label">직접 입력</span>
+                  <span class="d-sub">30초 ~ 1800초</span>
+                </button>
+              </div>
+
+              <!-- Original Duration Info Box -->
+              <div class="original-duration-row" id="ytOriginalDurationRow" style="display: none;">
+                <div class="original-dur-card">
+                  <div class="original-dur-icon">🎬</div>
+                  <div class="original-dur-info">
+                    <div class="original-dur-title" id="ytOriginalDurTitle">원본 동영상 시간 100% 자동 맞춤</div>
+                    <div class="original-dur-desc" id="ytOriginalDurDesc">
+                      업로드한 YouTube 영상의 실제 재생 길이를 자동 감지하여 동일한 전체 분량으로 1인칭 직접 번역 나레이션을 생성합니다.
+                    </div>
+                  </div>
+                  <div class="original-dur-badge" id="ytOriginalDetectedBadge">
+                    <span class="pulse-dot"></span>
+                    <span id="ytOriginalDetectedText">YouTube URL 입력 대기 중</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Custom Seconds Input Box -->
+              <div class="custom-duration-row" id="ytCustomDurationRow" style="display: none;">
+                <div class="custom-duration-flex">
+                  <label class="custom-duration-label" for="ytCustomDurationInput">목표 시간 (초 단위):</label>
+                  <input type="number" id="ytCustomDurationInput" class="form-input custom-dur-input" min="30" max="1800" step="10" value="180">
+                  <span class="custom-unit-label">초 (sec)</span>
+                  <span class="custom-char-estimate" id="ytCharEstimate">예상 생성 분량: 약 780자 (±10%)</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label" for="ytApiKeyInput">
+                  <span>Google Gemini API Key</span>
+                  <span class="opt-badge">선택 (미입력 시 스마트 분석 템플릿 동작)</span>
+                </label>
+                <input type="password" id="ytApiKeyInput" class="form-input" placeholder="AI Studio Gemini API Key 입력 (브라우저 안전 보관)">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="ytVoiceSelect">나레이터 음성 선택</label>
+                <select id="ytVoiceSelect" class="form-select">
+                  <option value="ko-KR-InJoonNeural" selected>남성 전문 해설가 (인준 - 신뢰감 있는 톤)</option>
+                  <option value="ko-KR-SunHiNeural">여성 친절한 해설가 (선희 - 밝고 명쾌한 톤)</option>
+                  <option value="ko-KR-HyunsuNeural">남성 뉴스 브리핑 (현수 - 스마트한 톤)</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="ytToneSelect">번역 & 해설 스타일</label>
+                <select id="ytToneSelect" class="form-select">
+                  <option value="faithful" selected>원문 충실 번역 (Faithful - 원작자의 논리/데이터 그대로 전달)</option>
+                  <option value="deep_dive">심층 해설 & 배경 설명 풀이 (Deep Explainer)</option>
+                  <option value="summary">핵심 논점 압축 요약 번역 (Quick Summary)</option>
+                  <option value="actionable">실무 적용 & 인사이트 중심 (Key Takeaways)</option>
+                </select>
+              </div>
+            </div>
+
+            <button type="button" class="btn-generate btn-yt-generate" id="btnGenerateYtOverview">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
+              </svg>
+              <span>🎙️ 원본 충실 번역 & 시간 맞춤 한국어 나레이션 오디오 생성 시작</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Progress Box -->
+        <div class="yt-monitor-box" id="ytMonitorBox" style="display: none;">
+          <div class="progress-header">
+            <div class="stage-badge" id="ytStageBadge">
+              <span class="status-beacon"></span>
+              <span id="ytStageText">YouTube 자막 및 메타데이터 수집 중...</span>
+            </div>
+            <div class="percentage-text" id="ytPercentText">10%</div>
+          </div>
+          <div class="progress-bar-container">
+            <div class="progress-bar-fill" id="ytProgressFill" style="width: 10%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Result Container -->
+      <div class="panel yt-result-section" id="ytResultSection" style="display: none;">
+        <div class="panel-header">
+          <div class="panel-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="color:var(--accent-emerald)">
+              <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+            </svg>
+            <span>생성된 한국어 원본 충실 번역 나레이션 오디오</span>
+          </div>
+          <div class="yt-result-actions">
+            <a id="ytBtnDownloadAudio" class="btn-lib-action" download="korean_faithful_narration.mp3">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+              <span>오디오 (.mp3)</span>
+            </a>
+            <a id="ytBtnDownloadTxt" class="btn-lib-action btn-action-txt" download="korean_narration_script.txt">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+              <span>대본 (.txt)</span>
+            </a>
+            <a id="ytBtnDownloadSrt" class="btn-lib-action btn-action-srt" download="korean_subtitles.srt">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM4 12h4v2H4v-2zm10 6H4v-2h10v2zm6 0h-4v-2h4v2zm0-4H10v-2h10v2z"/></svg>
+              <span>자막 (.srt)</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- Target Duration vs Actual Duration Comparison Bar -->
+        <div class="yt-duration-compare-bar" id="ytDurationCompareBar">
+          <div class="dur-stat-item">
+            <span class="dur-stat-label">🎯 설정한 목표 시간:</span>
+            <span class="dur-stat-val" id="ytStatTargetDur">180초 (3분 0초)</span>
+          </div>
+          <div class="dur-stat-divider"></div>
+          <div class="dur-stat-item">
+            <span class="dur-stat-label">⏱️ 완성된 오디오 길이:</span>
+            <span class="dur-stat-val active-green" id="ytStatActualDur">179.2초 (2분 59초)</span>
+          </div>
+          <div class="dur-stat-divider"></div>
+          <div class="dur-stat-item">
+            <span class="dur-stat-label">✨ 시간 정밀 일치율:</span>
+            <span class="dur-stat-val stat-badge-match" id="ytStatMatchRate">99.5%</span>
+          </div>
+        </div>
+
+        <!-- Audio Player & Visualizer Bar -->
+        <div class="yt-player-box">
+          <audio id="ytAudioPlayer" controls class="yt-audio-element"></audio>
+        </div>
+
+        <!-- 1-Click Studio Bridges -->
+        <div class="yt-studio-bridges">
+          <button type="button" class="btn-bridge-remotion" id="ytBtnSendToRemotion">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12zM12 5.5v9l6-4.5-6-4.5z"/>
+            </svg>
+            <span>🎬 Remotion 멀티트랙 스튜디오로 열기 (비주얼+번역나레이션+자막 자동 동기화)</span>
+          </button>
+          <button type="button" class="btn-bridge-scene" id="ytBtnSendToScene">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/>
+            </svg>
+            <span>📝 씬 & 자막 스튜디오로 대본 전달</span>
+          </button>
+        </div>
+
+        <!-- Analyzed Sources Grid -->
+        <div class="yt-sources-section">
+          <div class="form-label" style="margin-bottom: 10px;">번역된 YouTube 영상 원본 소스</div>
+          <div class="yt-sources-grid" id="ytSourcesList"></div>
+        </div>
+
+        <!-- Explanatory Narration Sections -->
+        <div class="yt-dialogue-section">
+          <div class="form-label" style="margin-bottom: 12px;">구조화된 한국어 충실 번역 리포트 (문단/타임스탬프 클릭 시 해당 위치 재생)</div>
+          <div class="yt-dialogue-list" id="ytDialogueList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Studio Grid (Scene & Classic) -->
+    <main class="studio-grid" id="standardStudioGrid" style="display: none;">
+      <!-- Left Column: Controls & Storyboard -->
+      <section class="controls-column">
+
+        <!-- ===================================================
+             MODE 1: Multi-Scene & Narration Subtitles Studio
+             =================================================== -->
+        <div id="sceneStudioView">
+          <!-- Step 1: Narration Audio -->
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title">
+                <span class="step-number">1</span>
+                <span>나레이션 오디오 파일</span>
+              </div>
+              <span class="panel-hint">메인 음성 트랙</span>
+            </div>
+
+            <div class="dropzone" id="sceneAudioDrop">
+              <div class="dropzone-icon">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+                </svg>
+              </div>
+              <div class="dropzone-label">나레이션 오디오 파일 선택 또는 드래그 <span class="dropzone-req req-badge">필수</span></div>
+              <div class="dropzone-sub">MP3, WAV, M4A, FLAC 등</div>
+            </div>
+            <input type="file" id="sceneAudioInput" class="file-input-hidden" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac,.aac">
+
+            <!-- Audio Loaded Card -->
+            <div class="file-loaded-card" id="sceneAudioLoadedCard">
+              <div class="file-info-row">
+                <div class="file-meta">
+                  <div class="file-type-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+                    </svg>
+                  </div>
+                  <div class="file-details">
+                    <div class="file-name" id="sceneAudioFileName">-</div>
+                    <div class="file-size-tag" id="sceneAudioFileSize">-</div>
+                  </div>
+                </div>
+                <button type="button" class="btn-remove-file" id="btnRemoveSceneAudio" title="오디오 제거">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                  </svg>
+                </button>
+              </div>
+              <!-- Audio Wave Preview -->
+              <div class="audio-preview-box">
+                <div class="audio-controls-row">
+                  <button type="button" class="btn-play-pause" id="btnPlaySceneAudio" title="오디오 재생/정지">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M8 5v14l11-7z"/>
+                    </svg>
+                  </button>
+                  <span class="audio-time-label" id="sceneAudioTimeLabel">0:00 / 0:00</span>
+                </div>
+                <canvas id="sceneAudioWaveCanvas" class="waveform-canvas"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 2: Narration Script Upload & Auto Distribution -->
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title">
+                <span class="step-number">2</span>
+                <span>나레이션 대본(Text) 업로드 & 입력</span>
+              </div>
+              <span class="panel-hint">대본 자동 분석</span>
+            </div>
+
+            <div class="narration-box">
+              <div class="script-header-actions">
+                <label for="narrationFileInput" class="btn-upload-text">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                  </svg>
+                  <span>대본 파일(.txt, .srt) 업로드</span>
+                </label>
+                <input type="file" id="narrationFileInput" class="file-input-hidden" accept=".txt,.srt,text/plain">
+                <span class="script-meta-tag" id="scriptSentenceCount">0개 문장 감지됨</span>
+              </div>
+
+              <textarea id="narrationText" class="narration-textarea" placeholder="여기에 전체 나레이션 대본을 입력하거나 붙여넣으세요. 마침표(.)나 줄바꿈을 기준으로 각 씬에 자막이 균등하게 자동 배분됩니다."></textarea>
+
+              <div class="script-button-row">
+                <button type="button" class="btn-magic-distribute" id="btnDistributeSubs">
+                  <span>🪄 문장 자동 분할 및 씬 배분</span>
+                </button>
+                <button type="button" class="btn-auto-balance" id="btnAutoBalanceDuration">
+                  <span>⏱️ 오디오 길이에 맞춰 씬 시간 균등 배분</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 3: Multi-Scene Storyboard Editor -->
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title">
+                <span class="step-number">3</span>
+                <span>씬(Scene) 타임라인 스토리보드 & 자막 편집</span>
+              </div>
+              <span class="panel-hint" id="scenesTotalInfo">0개 씬 등록됨</span>
+            </div>
+
+            <!-- Multi-Media Dropzone -->
+            <div class="dropzone" id="multiSceneDrop">
+              <div class="dropzone-icon">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/>
+                </svg>
+              </div>
+              <div class="dropzone-label">이미지 또는 동영상 파일 여러 개를 드래그하여 씬 추가</div>
+              <div class="dropzone-sub">JPG, PNG, WebP, MP4, MOV 등 (다중 선택 가능)</div>
+            </div>
+            <input type="file" id="multiSceneInput" class="file-input-hidden" multiple accept="image/*,video/*,.jpg,.jpeg,.png,.webp,.mp4,.mov,.webm">
+
+            <!-- Scenes List Container -->
+            <div class="scenes-container" id="scenesContainer"></div>
+
+            <div class="btn-add-scene-drop" id="btnAddScene">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+              </svg>
+              <span>미디어 파일 추가하여 새 씬 생성</span>
+            </div>
+          </div>
+
+          <!-- Step 4: Subtitle Style Customizer -->
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title">
+                <span class="step-number">4</span>
+                <span>자막 스타일 커스텀</span>
+              </div>
+              <span class="panel-hint">실시간 캔버스에 즉시 반영</span>
+            </div>
+
+            <div class="customizer-section">
+              <div class="form-row">
+                <div class="form-group">
+                  <div class="form-label-row">
+                    <span class="form-label">자막 글꼴 크기</span>
+                    <span class="val-badge" id="subFontSizeVal">30px</span>
+                  </div>
+                  <input type="range" id="subFontSize" min="20" max="50" step="2" value="30">
+                </div>
+
+                <div class="form-group">
+                  <div class="form-label-row">
+                    <span class="form-label">자막 글자 색상</span>
+                  </div>
+                  <div class="color-input-wrapper">
+                    <input type="color" id="subFontColorInput" value="#ffffff">
+                    <input type="text" id="subFontColorHex" class="color-hex-input" value="#ffffff" maxlength="7">
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <div class="form-label-row">
+                    <span class="form-label">자막 배경 스타일</span>
+                  </div>
+                  <div class="segmented-control">
+                    <button type="button" class="segment-btn active" data-subbg="box" id="subBgBox">반투명 박스</button>
+                    <button type="button" class="segment-btn" data-subbg="shadow" id="subBgShadow">외곽선 그림자</button>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <div class="form-label-row">
+                    <span class="form-label">자막 세로 위치</span>
+                  </div>
+                  <div class="segmented-control">
+                    <button type="button" class="segment-btn" data-subpos="top" id="subPosTop">상단</button>
+                    <button type="button" class="segment-btn" data-subpos="center" id="subPosCenter">중앙</button>
+                    <button type="button" class="segment-btn active" data-subpos="bottom" id="subPosBottom">하단</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===================================================
+             MODE 2: Classic Video Studio (Original)
+             =================================================== -->
+        <div id="classicStudioView" style="display: none;">
+          <!-- Classic Step 1: Media Files Upload -->
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title">
+                <span class="step-number">1</span>
+                <span>소스 미디어 파일</span>
+              </div>
+              <span class="panel-hint">단일 이미지 & 오디오</span>
+            </div>
+
+            <div class="upload-group">
+              <!-- Audio Dropzone -->
+              <div class="drop-column">
+                <div class="dropzone" id="audioDrop">
+                  <div class="dropzone-icon">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+                    </svg>
+                  </div>
+                  <div class="dropzone-label">오디오 파일 <span class="dropzone-req req-badge">필수</span></div>
+                  <div class="dropzone-sub">MP3, WAV, M4A, FLAC 등</div>
+                </div>
+                <input type="file" id="audioInput" class="file-input-hidden" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac,.aac">
+
+                <div class="file-loaded-card" id="audioLoadedCard">
+                  <div class="file-info-row">
+                    <div class="file-meta">
+                      <div class="file-type-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+                        </svg>
+                      </div>
+                      <div class="file-details">
+                        <div class="file-name" id="audioFileName">-</div>
+                        <div class="file-size-tag" id="audioFileSize">-</div>
+                      </div>
+                    </div>
+                    <button type="button" class="btn-remove-file" id="btnRemoveAudio" title="오디오 제거">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="audio-preview-box">
+                    <div class="audio-controls-row">
+                      <button type="button" class="btn-play-pause" id="btnPlayAudio" title="오디오 재생/정지">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M8 5v14l11-7z"/>
+                        </svg>
+                      </button>
+                      <span class="audio-time-label" id="audioTimeLabel">0:00 / 0:00</span>
+                    </div>
+                    <canvas id="audioWaveCanvas" class="waveform-canvas"></canvas>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Image Dropzone -->
+              <div class="drop-column">
+                <div class="dropzone" id="imageDrop">
+                  <div class="dropzone-icon">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                    </svg>
+                  </div>
+                  <div class="dropzone-label">배경 이미지 <span class="dropzone-req opt-badge">선택</span></div>
+                  <div class="dropzone-sub">JPG, PNG, WebP (1080p 권장)</div>
+                </div>
+                <input type="file" id="imageInput" class="file-input-hidden" accept="image/*,.jpg,.jpeg,.png,.webp">
+
+                <div class="file-loaded-card" id="imageLoadedCard">
+                  <div class="file-info-row">
+                    <div class="file-meta">
+                      <div class="file-type-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                        </svg>
+                      </div>
+                      <div class="file-details">
+                        <div class="file-name" id="imageFileName">-</div>
+                        <div class="file-size-tag" id="imageFileSize">-</div>
+                      </div>
+                    </div>
+                    <button type="button" class="btn-remove-file" id="btnRemoveImage" title="이미지 제거">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                      </svg>
+                    </button>
+                  </div>
+                  <img id="imageThumb" class="image-thumb-preview" alt="배경 미리보기">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Classic Step 2: Render Mode Selector -->
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title">
+                <span class="step-number">2</span>
+                <span>비디오 렌더 모드</span>
+              </div>
+            </div>
+
+            <div class="mode-cards">
+              <div class="mode-card active" data-mode="waveform_overlay">
+                <div class="mode-card-header">
+                  <div class="mode-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M3 17h2v-4H3v4zm4 4h2V7H7v14zm4-8h2V3h-2v10zm4 4h2V9h-2v8zm4-2h2v-4h-2v4z"/>
+                    </svg>
+                  </div>
+                  <div class="mode-radio-check"></div>
+                </div>
+                <div class="mode-title">웨이브 오버레이</div>
+                <div class="mode-desc">배경 이미지 위에 반투명 오디오 파형을 세련되게 합성합니다.</div>
+              </div>
+
+              <div class="mode-card" data-mode="waveform">
+                <div class="mode-card-header">
+                  <div class="mode-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.2-1.75 4.45-4H15V6h4V3h-7z"/>
+                    </svg>
+                  </div>
+                  <div class="mode-radio-check"></div>
+                </div>
+                <div class="mode-title">파형 비디오</div>
+                <div class="mode-desc">오디오 신호만으로 깔끔한 단독 파형 시각화 비디오를 생성합니다.</div>
+              </div>
+
+              <div class="mode-card" data-mode="static">
+                <div class="mode-card-header">
+                  <div class="mode-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14z"/>
+                    </svg>
+                  </div>
+                  <div class="mode-radio-check"></div>
+                </div>
+                <div class="mode-title">정지 이미지 영상</div>
+                <div class="mode-desc">정적 배경 이미지와 오디오를 최적화 인코딩하여 결합합니다.</div>
+              </div>
+            </div>
+
+            <div class="batch-all-toggle">
+              <label for="batchAllToggle">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M7 2v11h3v9l7-12h-4l4-8z"/>
+                </svg>
+                <span>3가지 비디오 모드 한 번에 일괄 생성 (All-in-One)</span>
+              </label>
+              <div class="toggle-switch">
+                <input type="checkbox" id="batchAllToggle">
+                <span class="slider-toggle"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Classic Step 3: Waveform Visual Customizer -->
+          <div class="panel" id="optionsPanel">
+            <div class="panel-header">
+              <div class="panel-title">
+                <span class="step-number">3</span>
+                <span>파형 스타일 커스텀</span>
+              </div>
+            </div>
+
+            <div class="customizer-section">
+              <div>
+                <div class="form-label" style="margin-bottom:8px">네온 스타일 프리셋</div>
+                <div class="preset-palette-group" id="presetsContainer"></div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <div class="form-label-row">
+                    <span class="form-label">파형 색상</span>
+                  </div>
+                  <div class="color-input-wrapper">
+                    <input type="color" id="waveColorInput" value="#00d2ff">
+                    <input type="text" id="waveColorHex" class="color-hex-input" value="#00d2ff" maxlength="7">
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <div class="form-label-row">
+                    <span class="form-label">파형 투명도 (Opacity)</span>
+                    <span class="val-badge" id="opacityVal">70%</span>
+                  </div>
+                  <input type="range" id="opacitySlider" min="0.1" max="1.0" step="0.05" value="0.7">
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <div class="form-label-row">
+                    <span class="form-label">파형 높이</span>
+                    <span class="val-badge" id="heightVal">320px</span>
+                  </div>
+                  <input type="range" id="heightSlider" min="100" max="800" step="10" value="320">
+                </div>
+
+                <div class="form-group">
+                  <div class="form-label-row">
+                    <span class="form-label">파형 세로 위치</span>
+                  </div>
+                  <div class="segmented-control">
+                    <button type="button" class="segment-btn" data-pos="top">상단</button>
+                    <button type="button" class="segment-btn" data-pos="center">중앙</button>
+                    <button type="button" class="segment-btn active" data-pos="bottom">하단</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Common Render Launch Button -->
+        <button type="button" class="btn-generate" id="btnGenerate" disabled>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5v14l11-7z"/>
+          </svg>
+          <span id="btnGenerateText">오디오 파일을 업로드하세요</span>
+        </button>
+      </section>
+
+      <!-- Right Column: Live 1080p Mockup, Monitor & Library -->
+      <section class="preview-column">
+        <!-- Live Layout Mockup -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="color:var(--accent-cyan)">
+                <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+              </svg>
+              <span>1080p 레이아웃 & 자막 실시간 프리뷰</span>
+            </div>
+            <span class="panel-hint">16:9 비율</span>
+          </div>
+
+          <div class="preview-card">
+            <div class="preview-overlay-badge" id="previewModeBadge">SCENE 1 PREVIEW</div>
+            <div class="preview-scene-indicator" id="previewSceneIndicator">씬 1/1</div>
+            <canvas id="previewCanvas"></canvas>
+          </div>
+        </div>
+
+        <!-- Render Monitor Panel -->
+        <div class="panel monitor-panel" id="monitorPanel">
+          <div class="progress-header">
+            <div class="stage-badge" id="stageBadge">
+              <span class="status-beacon"></span>
+              <span>작업 준비 중...</span>
+            </div>
+            <div class="percentage-text" id="percentageText">0%</div>
+          </div>
+
+          <div class="progress-bar-container">
+            <div class="progress-bar-fill" id="progressBar"></div>
+          </div>
+
+          <div class="progress-steps-row">
+            <div class="step-pill" id="stepUpload">1. 업로드</div>
+            <div class="step-pill" id="stepAnalyze">2. 신호/자막 분석</div>
+            <div class="step-pill" id="stepEncode">3. FFmpeg 인코딩</div>
+            <div class="step-pill" id="stepComplete">4. 완료</div>
+          </div>
+
+          <div class="monitor-actions">
+            <button type="button" class="btn-cancel" id="btnCancel">렌더링 취소</button>
+            <button type="button" class="btn-toggle-log" id="btnToggleLog">FFmpeg 로그 보기 ▼</button>
+          </div>
+
+          <div class="terminal-drawer" id="terminalDrawer">
+            <div class="terminal-log-area" id="terminalLog"></div>
+          </div>
+        </div>
+
+        <!-- Current Job Results Container -->
+        <div class="panel results-container" id="resultsContainer">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="color:var(--accent-emerald)">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+              </svg>
+              <span>렌더링 결과물</span>
+            </div>
+          </div>
+          <div id="resultsList"></div>
+        </div>
+
+        <!-- File History Gallery -->
+        <div class="panel" id="libraryPanel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="color:var(--accent-purple)">
+                <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/>
+              </svg>
+              <span>생성된 비디오 보관함</span>
+            </div>
+            <span class="panel-hint">outputs/ 디렉터리</span>
+          </div>
+
+          <div class="library-grid" id="libraryGrid">
+            <div class="empty-library-msg">생성된 비디오 파일 목록을 불러오는 중...</div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- In-Browser Video Player Modal -->
+  <div class="modal-backdrop" id="videoModal">
+    <div class="video-modal-card">
+      <div class="modal-header">
+        <h3 id="modalTitle">비디오 미리보기</h3>
+        <button type="button" class="btn-close-modal" id="btnCloseModal" title="닫기">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+          </svg>
+        </button>
+      </div>
+      <video id="modalVideo" class="modal-video-element" controls></video>
+    </div>
+  </div>
+
+  <script src="/static/js/audio_preview.js?v=3.3"></script>
+  <script src="/static/js/remotion_editor.js?v=3.3"></script>
+  <script src="/static/js/youtube_overview.js?v=3.3"></script>
+  <script src="/static/js/app.js?v=3.3"></script>
+</body>
+</html>

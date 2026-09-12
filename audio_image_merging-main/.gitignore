@@ -1,0 +1,23 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Secrets & API Keys
+opencode.json
+.env
+*.key
+
+# Output & Upload artifacts
+uploads/
+outputs/
+*.mp4
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Empty artifacts
+image_audio

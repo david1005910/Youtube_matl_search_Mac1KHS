@@ -556,6 +556,9 @@
     <span id="apiStatusTr"  class="text-xs text-slate-500">Transcript ···</span>
     <span id="apiStatusXai" class="text-xs text-slate-500">xAI ···</span>
     <span id="apiStatusStability" class="text-xs text-slate-500">Stability ···</span>
+    <span id="apiStatusLocalSd" class="text-xs text-slate-500">💻 Local SD ···</span>
+    <span id="apiStatusComfyui" class="text-xs text-slate-500">⚙️ ComfyUI ···</span>
+    <span id="apiStatusPhosphene" class="text-xs text-slate-500">🎬 Phosphene ···</span>
   </div>
 
   <!-- 검색 영역 -->
@@ -644,7 +647,7 @@
   </div>
 </div>
 
-<script src="app.js?v=20260624d" defer>
+<script src="app.js?v=20260625a" defer>
 </script>
 
 <!-- ── YouTube Creator AI 채팅 위젯 ── -->
@@ -1074,19 +1077,62 @@
         <h3 class="text-base font-bold text-blue-300">🎨 AI 이미지 생성</h3>
         <p class="text-xs text-slate-400 mt-0.5">프롬프트 검증 → AI 이미지 생성 · 스크립트/자막 편집 · 전체 내보내기</p>
         <!-- 이미지 모델 선택 토글 -->
-        <div class="flex gap-2 mt-2">
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-2">
+          <button id="imgModelComfyui" onclick="setImageModel('comfyui')"
+            class="py-1.5 px-2 text-xs font-bold rounded-lg transition bg-blue-600 text-white border-blue-500 truncate">
+            ⚙️ ComfyUI (로컬)
+          </button>
+          <button id="imgModelPollinations" onclick="setImageModel('pollinations')"
+            class="py-1.5 px-2 text-xs font-bold rounded-lg transition bg-slate-700 text-slate-300 border-slate-600 truncate">
+            🌸 Pollinations (무료)
+          </button>
+          <button id="imgModelLocalSd" onclick="setImageModel('local-sd')"
+            class="py-1.5 px-2 text-xs font-bold rounded-lg transition bg-slate-700 text-slate-300 border-slate-600 truncate">
+            💻 내 PC (Local SD)
+          </button>
           <button id="imgModelImagen" onclick="setImageModel('imagen')"
-            class="flex-1 py-1.5 text-xs font-bold rounded-lg transition bg-blue-600 text-white border-blue-500">
+            class="py-1.5 px-2 text-xs font-bold rounded-lg transition bg-slate-700 text-slate-300 border-slate-600 truncate">
             🌈 Imagen
           </button>
           <button id="imgModelStability" onclick="setImageModel('stability')"
-            class="flex-1 py-1.5 text-xs font-bold rounded-lg transition bg-slate-700 text-slate-300 border-slate-600">
-            🎨 Stable Diffusion
+            class="py-1.5 px-2 text-xs font-bold rounded-lg transition bg-slate-700 text-slate-300 border-slate-600 truncate">
+            🎨 Stability SD3.5
           </button>
-          <button id="imgModelPollinations" onclick="setImageModel('pollinations')"
-            class="flex-1 py-1.5 text-xs font-bold rounded-lg transition bg-slate-700 text-slate-300 border-slate-600">
-            🌸 Pollinations (무료)
-          </button>
+        </div>
+
+        <!-- 이미지 스타일 프리셋 선택기 -->
+        <div class="mt-2.5 pt-2 border-t border-slate-700/70">
+          <div class="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+            <div class="flex items-center gap-1.5">
+              <span class="text-[11px] font-bold text-indigo-300">✨ 스타일 프리셋:</span>
+              <span id="globalStyleBadge" class="text-[10px] font-bold text-amber-300 bg-amber-950/60 border border-amber-700/50 px-2 py-0.5 rounded">
+                🔘 기본 (원본)
+              </span>
+            </div>
+            <span class="text-[10px] text-slate-400">일괄 적용 · 카드별 개별 변경 가능</span>
+          </div>
+          <div id="stylePresetContainer" class="flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+            <!-- JavaScript에서 12개 스타일 버튼 자동 렌더링 -->
+          </div>
+          <!-- 스타일 프롬프트 AI 일괄 변환 버튼 & 자막 텍스트 ON/OFF 토글 & 상태 표시 -->
+          <div class="flex items-center justify-between gap-2 mt-2 pt-1.5 border-t border-slate-700/50 flex-wrap">
+            <div class="flex items-center gap-2 flex-wrap">
+              <button type="button" id="transformStyleAllBtn" onclick="transformAllPromptsForStyle()"
+                class="bg-gradient-to-r from-indigo-700 to-purple-700 hover:from-indigo-600 hover:to-purple-600 text-white text-[11px] font-bold px-3 py-1.5 rounded-lg transition shadow-sm flex items-center gap-1.5 whitespace-nowrap">
+                <span>🪄</span>
+                <span id="transformStyleBtnLabel">선택한 스타일로 모든 AI 프롬프트 재작성</span>
+              </button>
+              <!-- 💬 자막 텍스트 삽입 ON/OFF 토글 버튼 -->
+              <button type="button" id="globalSubtitleToggleBtn" onclick="toggleGlobalSubtitleOverlay()"
+                class="bg-emerald-700/80 hover:bg-emerald-600 text-emerald-100 border border-emerald-500/60 text-[11px] font-bold px-3 py-1.5 rounded-lg transition shadow-sm flex items-center gap-1.5 whitespace-nowrap"
+                title="이미지에 자막 텍스트 오버레이 합성 여부를 ON/OFF 합니다">
+                <span id="globalSubIcon">💬</span>
+                <span id="globalSubLabel">자막 텍스트 삽입: ON</span>
+              </button>
+              <span id="styleTransformStatus" class="hidden text-[11px] text-emerald-400 font-semibold"></span>
+            </div>
+            <span class="text-[10px] text-slate-400">자막 ON/OFF 전환 시 이미지에 자막 합성 여부를 선택할 수 있습니다</span>
+          </div>
         </div>
       </div>
       <button onclick="closeGrokModal()" class="text-slate-400 hover:text-white text-xl leading-none ml-4">✕</button>

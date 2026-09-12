@@ -25,7 +25,7 @@ def load_env():
     keys = {
         'YOUTUBE_API_KEY': '',
         'GEMINI_API_KEY': '',
-        'GEMINI_MODEL': 'gemini-2.5-flash',
+        'GEMINI_MODEL': 'gemini-3.1-flash-lite',
         'TRANSCRIPT_API_KEY': '',
         'XAI_API_KEY': '',
         'IMGBB_API_KEY': '',
@@ -34,6 +34,7 @@ def load_env():
         'WANGP_URL': 'http://127.0.0.1:7860',
         'WANGP_API_URL': 'http://127.0.0.1:7861',
         'PHOSPHENE_URL': 'http://127.0.0.1:8198',
+        'LOCAL_SD_URL': 'http://127.0.0.1:7865',
     }
     if ENV_FILE.exists():
         for line in ENV_FILE.read_text(encoding='utf-8').splitlines():
@@ -47,7 +48,7 @@ def save_env(data):
     content = (
         f"YOUTUBE_API_KEY={data.get('YOUTUBE_API_KEY', '')}\n"
         f"GEMINI_API_KEY={data.get('GEMINI_API_KEY', '')}\n"
-        f"GEMINI_MODEL={data.get('GEMINI_MODEL', 'gemini-2.5-flash')}\n"
+        f"GEMINI_MODEL={data.get('GEMINI_MODEL', 'gemini-3.1-flash-lite')}\n"
         f"TRANSCRIPT_API_KEY={data.get('TRANSCRIPT_API_KEY', '')}\n"
         f"XAI_API_KEY={data.get('XAI_API_KEY', '')}\n"
         f"IMGBB_API_KEY={data.get('IMGBB_API_KEY', '')}\n"
@@ -56,6 +57,7 @@ def save_env(data):
         f"WANGP_URL={data.get('WANGP_URL', 'http://127.0.0.1:7860')}\n"
         f"WANGP_API_URL={data.get('WANGP_API_URL', 'http://127.0.0.1:7861')}\n"
         f"PHOSPHENE_URL={data.get('PHOSPHENE_URL', 'http://127.0.0.1:8198')}\n"
+        f"LOCAL_SD_URL={data.get('LOCAL_SD_URL', 'http://127.0.0.1:7865')}\n"
     )
     ENV_FILE.write_text(content, encoding='utf-8')
 
@@ -78,6 +80,36 @@ def get_phosphene_url():
     """Phosphene 패널(mlx_ltx_panel.py) URL 반환 (로컬 MLX 영상 생성, 기본 :8198)"""
     env = load_env()
     return env.get('PHOSPHENE_URL', 'http://127.0.0.1:8198').rstrip('/')
+
+def fetch_pollinations_image(prompt, width=1280, height=720, preferred_model='flux'):
+    """Pollinations.ai를 통한 무료 고화질 이미지 생성 (Flux -> Turbo 다중 폴백)"""
+    import base64 as _b64
+    clean_prompt = ' '.join(prompt.split())[:700]
+    enc = urllib.parse.quote(clean_prompt)
+    
+    models = [preferred_model]
+    for m in ['flux', 'turbo']:
+        if m not in models:
+            models.append(m)
+            
+    last_err = ''
+    for m in models:
+        try:
+            url = f'https://image.pollinations.ai/prompt/{enc}?width={width}&height={height}&model={m}&nologo=true&seed=42'
+            req = urllib.request.Request(
+                url,
+                headers={
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                }
+            )
+            with urllib.request.urlopen(req, timeout=45, context=_ssl_ctx) as resp:
+                data = resp.read()
+                if len(data) > 1000:
+                    return _b64.b64encode(data).decode('utf-8'), 'image/jpeg', None
+        except Exception as e:
+            last_err = str(e)
+            continue
+    return None, None, last_err
 
 # ── claude-youtube-main 스킬 (YouTube Creator AI) ──
 def get_skill_content(skill_name):
@@ -297,6 +329,23 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception as e:
                 _send_json(self, 500, {'error': f'ComfyUI view 실패: {str(e)}'})
 
+        elif self.path.startswith('/api/proxy/comfyui/'):
+            # ComfyUI 일반 GET 프록시
+            sub_path = self.path[len('/api/proxy/comfyui'):]
+            comfyui_url = f'{get_comfyui_url()}{sub_path}'
+            try:
+                req = urllib.request.Request(comfyui_url)
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    resp_body = resp.read()
+                    content_type = resp.headers.get('Content-Type', 'application/json')
+                self.send_response(200)
+                self.send_header('Content-Type', content_type)
+                self.send_header('Content-Length', len(resp_body))
+                self.end_headers()
+                self.wfile.write(resp_body)
+            except Exception as e:
+                _send_json(self, 500, {'error': f'ComfyUI 요청 실패: {str(e)}'})
+
         # ── WanGP REST 사이드카 프록시 (영상 생성) ──────────────────
         elif self.path == '/api/wangp/api-health':
             # 사이드카(wangp_rest_server.py) 연결 상태 확인
@@ -383,6 +432,17 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception as e:
                 _send_json(self, 500, {'error': f'Phosphene file 실패: {str(e)}'})
 
+        # ── 내 PC Local Stable Diffusion 상태 확인 ──────────────────────
+        elif self.path == '/api/proxy/local-sd-status':
+            local_url = load_env().get('LOCAL_SD_URL', 'http://127.0.0.1:7865').rstrip('/')
+            try:
+                req = urllib.request.Request(f'{local_url}/health', headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=2.0) as resp:
+                    data = json.loads(resp.read().decode('utf-8'))
+                _send_json(self, 200, {'online': True, **data})
+            except Exception as e:
+                _send_json(self, 200, {'online': False, 'error': str(e)})
+
         else:
             super().do_GET()
 
@@ -446,59 +506,121 @@ class Handler(SimpleHTTPRequestHandler):
         elif self.path == '/api/proxy/gemini-image':
             data = json.loads(body_raw)
             api_key = data.get('geminiApiKey', '').strip() or load_env().get('GEMINI_API_KEY', '')
-            if not api_key:
-                _send_json(self, 400, {'error': 'GEMINI_API_KEY not set'}); return
-
             prompt = data.get('prompt', '')
-            model  = data.get('model', 'imagen-4.0-fast-generate-001')
-            req_body = json.dumps({
-                'instances': [{'prompt': prompt}],
-                'parameters': {'sampleCount': 1},
-            }).encode('utf-8')
-            url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:predict?key={api_key}'
-            req = urllib.request.Request(
-                url,
-                data=req_body,
-                headers={
-                    'Content-Type': 'application/json',
-                    'User-Agent': 'YouTubeContentTool/1.0',
-                }
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=60, context=_ssl_ctx) as resp:
-                    resp_body = resp.read()
-                self.send_response(200)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', len(resp_body))
-                self.end_headers()
-                self.wfile.write(resp_body)
-            except urllib.error.HTTPError as e:
-                err_body = e.read() or b'{}'
-                self.send_response(e.code)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', len(err_body))
-                self.end_headers()
-                self.wfile.write(err_body)
-            except Exception as e:
-                _send_json(self, 500, {'error': str(e)})
+            model  = data.get('model', '').strip()
+            width  = data.get('width', 1280)
+            height = data.get('height', 720)
+
+            success = False
+            result_b64 = None
+            mime_type = 'image/png'
+            last_error = ''
+
+            # 1. Gemini / Imagen API 시도 (API 키가 있는 경우)
+            is_quota_exceeded = False
+            if api_key:
+                # 1-A. Imagen 3 predict 시도
+                pred_model = model if ('imagen' in model and 'generate' in model) else 'imagen-3.0-generate-002'
+                url = f'https://generativelanguage.googleapis.com/v1beta/models/{pred_model}:predict?key={api_key}'
+                req_body = json.dumps({
+                    'instances': [{'prompt': prompt}],
+                    'parameters': {'sampleCount': 1},
+                }).encode('utf-8')
+                req = urllib.request.Request(
+                    url,
+                    data=req_body,
+                    headers={
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    }
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=12, context=_ssl_ctx) as resp:
+                        resp_data = json.loads(resp.read().decode('utf-8'))
+                        preds = resp_data.get('predictions', [])
+                        if preds and preds[0].get('bytesBase64Encoded'):
+                            result_b64 = preds[0]['bytesBase64Encoded']
+                            mime_type = preds[0].get('mimeType', 'image/png')
+                            success = True
+                except urllib.error.HTTPError as e:
+                    if e.code == 429:
+                        is_quota_exceeded = True
+                    err_text = (e.read() or b'{}').decode('utf-8', 'replace')
+                    last_error = f'Imagen 오류 ({e.code}): {err_text}'
+                except Exception as e:
+                    last_error = str(e)
+
+                # 1-B. gemini-2.5-flash-image generateContent 시도 (429가 아닐 때만)
+                if not success and not is_quota_exceeded:
+                    url_gen = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key={api_key}'
+                    gen_body = json.dumps({
+                        'contents': [{'parts': [{'text': prompt}]}],
+                        'generationConfig': {'responseModalities': ['IMAGE', 'TEXT']}
+                    }).encode('utf-8')
+                    req_gen = urllib.request.Request(
+                        url_gen,
+                        data=gen_body,
+                        headers={
+                            'Content-Type': 'application/json',
+                            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        }
+                    )
+                    try:
+                        with urllib.request.urlopen(req_gen, timeout=12, context=_ssl_ctx) as resp:
+                            resp_data = json.loads(resp.read().decode('utf-8'))
+                            candidates = resp_data.get('candidates', [])
+                            for c in candidates:
+                                for p in c.get('content', {}).get('parts', []):
+                                    inline = p.get('inlineData')
+                                    if inline and inline.get('data'):
+                                        result_b64 = inline['data']
+                                        mime_type = inline.get('mimeType', 'image/png')
+                                        success = True
+                                        break
+                                if success:
+                                    break
+                    except urllib.error.HTTPError as e:
+                        err_text = (e.read() or b'{}').decode('utf-8', 'replace')
+                        last_error = f'Gemini Image 오류 ({e.code}): {err_text}'
+                    except Exception as e:
+                        last_error = str(e)
+
+            # 2. Gemini/Imagen 실패 시 (429 할당량 초과 등) Pollinations (Flux/Turbo) 자동 폴백
+            if not success:
+                poll_b64, poll_mime, poll_err = fetch_pollinations_image(prompt, width=width, height=height, preferred_model='flux')
+                if poll_b64:
+                    result_b64 = poll_b64
+                    mime_type = poll_mime
+                    success = True
+                else:
+                    if poll_err:
+                        last_error += f' / Pollinations 오류: {poll_err}'
+
+            if success and result_b64:
+                _send_json(self, 200, {
+                    'predictions': [{'bytesBase64Encoded': result_b64, 'mimeType': mime_type}],
+                    'candidates': [{'content': {'parts': [{'inlineData': {'data': result_b64, 'mimeType': mime_type}}]}}],
+                    'image': result_b64,
+                    'mimeType': mime_type,
+                    'fallback': bool(last_error)
+                })
+            else:
+                _send_json(self, 500, {'error': last_error or '이미지 생성에 실패했습니다.'})
 
         # ── Stable Diffusion (Stability AI) 이미지 생성 ──────────────────
         elif self.path == '/api/proxy/stability-image':
             data = json.loads(body_raw)
-            api_key = load_env().get('STABILITY_API_KEY', '')
+            api_key = data.get('stabilityApiKey', '').strip() or load_env().get('STABILITY_API_KEY', '')
             if not api_key:
                 _send_json(self, 400, {'error': 'STABILITY_API_KEY not set'}); return
 
             prompt = data.get('prompt', '')
             negative_prompt = data.get('negative_prompt', '')
-            model = data.get('model', 'sd3.5-large')  # sd3.5-large, sd3.5-large-turbo, sd3.5-medium
+            model = data.get('model', 'sd3.5-large')
             aspect_ratio = data.get('aspect_ratio', '16:9')
             output_format = data.get('output_format', 'png')
 
-            # Stability AI API v2beta - SD3.5
             url = f'https://api.stability.ai/v2beta/stable-image/generate/sd3'
-
-            # multipart/form-data 형식으로 전송
             boundary = '----WebKitFormBoundary7MA4YWxkTrZu0gW'
             body_parts = []
 
@@ -524,7 +646,7 @@ class Handler(SimpleHTTPRequestHandler):
                     'Authorization': f'Bearer {api_key}',
                     'Content-Type': f'multipart/form-data; boundary={boundary}',
                     'Accept': 'application/json',
-                    'User-Agent': 'YouTubeContentTool/1.0',
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 }
             )
             try:
@@ -545,47 +667,26 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception as e:
                 _send_json(self, 500, {'error': str(e)})
 
-        # ── Pollinations.ai 무료 이미지 생성 ──────────────────────────────
-        elif self.path == '/api/proxy/pollinations-image':
-            import base64 as _b64
-            data = json.loads(body_raw)
-            prompt = data.get('prompt', '')
-            width = data.get('width', 1280)
-            height = data.get('height', 720)
-            model = data.get('model', 'flux')  # flux, turbo, etc.
-
-            # URL 인코딩
-            encoded_prompt = urllib.parse.quote(prompt)
-            url = f'https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&model={model}&nologo=true'
-
-            req = urllib.request.Request(url, headers={'User-Agent': 'YouTubeContentTool/1.0'})
+        # ── 내 PC Local Stable Diffusion (MPS / GPU) ──────────────────────
+        elif self.path == '/api/proxy/local-sd-status':
+            local_url = load_env().get('LOCAL_SD_URL', 'http://127.0.0.1:7865').rstrip('/')
             try:
-                with urllib.request.urlopen(req, timeout=120, context=_ssl_ctx) as resp:
-                    img_data = resp.read()
-                # base64로 인코딩하여 JSON으로 반환
-                img_b64 = _b64.b64encode(img_data).decode('utf-8')
-                _send_json(self, 200, {'image': img_b64})
-            except urllib.error.HTTPError as e:
-                err_body = e.read() or b'{}'
-                _send_json(self, e.code, {'error': err_body.decode('utf-8', 'replace')})
+                req = urllib.request.Request(f'{local_url}/health', headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=2.0) as resp:
+                    data = json.loads(resp.read().decode('utf-8'))
+                _send_json(self, 200, {'online': True, **data})
             except Exception as e:
-                _send_json(self, 500, {'error': str(e)})
+                _send_json(self, 200, {'online': False, 'error': str(e)})
 
-        elif self.path == '/api/proxy/gemini':
-            # Gemini 텍스트 생성 프록시 (브라우저 직접 호출 시 네트워크 오류 우회)
-            data    = json.loads(body_raw)
-            api_key = load_env().get('GEMINI_API_KEY', '')
-            model   = load_env().get('GEMINI_MODEL', 'gemini-2.5-flash')
-            if not api_key:
-                _send_json(self, 400, {'error': 'GEMINI_API_KEY not set'}); return
-
-            url      = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}'
-            req_body = json.dumps(data).encode('utf-8')
-            req      = urllib.request.Request(url, data=req_body,
-                           headers={'Content-Type': 'application/json',
-                                    'User-Agent': 'YouTubeContentTool/1.0'})
+        elif self.path == '/api/proxy/local-sd':
+            local_url = load_env().get('LOCAL_SD_URL', 'http://127.0.0.1:7865').rstrip('/')
             try:
-                with urllib.request.urlopen(req, timeout=120, context=_ssl_ctx) as resp:
+                req = urllib.request.Request(
+                    f'{local_url}/api/generate',
+                    data=body_raw,
+                    headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'}
+                )
+                with urllib.request.urlopen(req, timeout=180) as resp:
                     resp_body = resp.read()
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
@@ -600,7 +701,84 @@ class Handler(SimpleHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(err_body)
             except Exception as e:
-                _send_json(self, 500, {'error': str(e)})
+                _send_json(self, 503, {'error': f'Local SD 서버({local_url})에 연결할 수 없습니다: {e}'})
+
+        # ── Pollinations.ai 무료 이미지 생성 ──────────────────────────────
+        elif self.path == '/api/proxy/pollinations-image':
+            data = json.loads(body_raw)
+            prompt = data.get('prompt', '')
+            width = data.get('width', 1280)
+            height = data.get('height', 720)
+            model = data.get('model', 'flux')
+
+            img_b64, mime_type, err = fetch_pollinations_image(prompt, width=width, height=height, preferred_model=model)
+            if img_b64:
+                _send_json(self, 200, {
+                    'image': img_b64,
+                    'predictions': [{'bytesBase64Encoded': img_b64, 'mimeType': mime_type}],
+                    'candidates': [{'content': {'parts': [{'inlineData': {'data': img_b64, 'mimeType': mime_type}}]}}],
+                    'mimeType': mime_type
+                })
+            else:
+                _send_json(self, 500, {'error': f'Pollinations 생성 실패: {err}'})
+
+        elif self.path == '/api/proxy/gemini':
+            # Gemini 텍스트 생성 프록시 (할당량 초과 시 자동 대체 모델 폴백)
+            data    = json.loads(body_raw)
+            api_key = data.get('geminiApiKey', '').strip() or load_env().get('GEMINI_API_KEY', '')
+            primary_model = data.get('model', '').strip() or load_env().get('GEMINI_MODEL', 'gemini-3.1-flash-lite')
+            if not api_key:
+                _send_json(self, 400, {'error': 'GEMINI_API_KEY not set'}); return
+
+            # 429 (할당량 초과) / 404 / 503 발생 시 순차적으로 시도할 고가용성 모델 목록
+            candidate_models = [primary_model]
+            for m in ['gemini-3.1-flash-lite', 'gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemma-4-26b-a4b-it']:
+                if m not in candidate_models:
+                    candidate_models.append(m)
+
+            last_err_code = 500
+            last_err_body = b'{}'
+            success = False
+
+            for model in candidate_models:
+                url      = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}'
+                req_body = json.dumps(data).encode('utf-8')
+                req      = urllib.request.Request(
+                    url,
+                    data=req_body,
+                    headers={
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    }
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=120, context=_ssl_ctx) as resp:
+                        resp_body = resp.read()
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Content-Length', len(resp_body))
+                    self.end_headers()
+                    self.wfile.write(resp_body)
+                    success = True
+                    break
+                except urllib.error.HTTPError as e:
+                    last_err_code = e.code
+                    last_err_body = e.read() or b'{}'
+                    # 429 할당량 초과 또는 404 모델 없음 시 다음 모델 시도
+                    if e.code in (429, 404, 503):
+                        continue
+                    else:
+                        break
+                except Exception as e:
+                    last_err_body = json.dumps({'error': str(e)}).encode('utf-8')
+                    break
+
+            if not success:
+                self.send_response(last_err_code)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', len(last_err_body))
+                self.end_headers()
+                self.wfile.write(last_err_body)
 
         # ── Grok 비디오 생성 (텍스트→영상 / 이미지→영상) ──────────────────
         elif self.path == '/api/proxy/grok-video':

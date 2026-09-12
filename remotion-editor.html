@@ -877,9 +877,9 @@
                 </p>
             </div>
 
-            <!-- AI 영상 생성 -->
+            <!-- AI 미디어 생성 (이미지 & 영상) -->
             <div class="ai-video-section">
-                <h3>🤖 AI 영상 생성
+                <h3>🤖 AI 생성 스튜디오
                     <label style="float: right; font-size: 12px; font-weight: normal; cursor: pointer;">
                         <input type="checkbox" id="autoAiGenerate" style="margin-right: 5px;"> 자동 생성
                     </label>
@@ -888,13 +888,18 @@
                 <!-- 백엔드 선택 -->
                 <div class="ai-settings-row" style="margin-bottom: 10px;">
                     <select id="aiBackend" onchange="switchAiBackend(this.value)" style="flex: 1;">
-                        <option value="wangp" selected>🚀 WanGP (Desktop GPU)</option>
+                        <option value="phosphene" selected>🎬 Phosphene (로컬 Pinokio - Apple Silicon)</option>
+                        <option value="wangp">🚀 WanGP (Desktop GPU)</option>
                         <option value="comfyui">⚙️ ComfyUI (로컬)</option>
+                        <option value="grok">🤖 Grok Video (xAI)</option>
                     </select>
                 </div>
 
                 <div class="ai-mode-tabs">
-                    <div class="ai-mode-tab active" onclick="switchAiMode('text2video')">
+                    <div class="ai-mode-tab active" onclick="switchAiMode('text2image')">
+                        🎨 텍스트→이미지
+                    </div>
+                    <div class="ai-mode-tab" onclick="switchAiMode('text2video')">
                         📝 텍스트→영상
                     </div>
                     <div class="ai-mode-tab" onclick="switchAiMode('img2video')">
@@ -902,8 +907,49 @@
                     </div>
                 </div>
 
+                <!-- 텍스트→이미지 모드 -->
+                <div class="ai-mode-content active" id="text2imageMode">
+                    <textarea class="prompt-input" id="t2iPrompt" placeholder="생성할 이미지에 대한 상세 설명을 입력하세요...&#10;예: A breathtaking sci-fi architecture with glowing neon lights, cinematic lighting, 8k"></textarea>
+
+                    <div class="ai-settings-row">
+                        <select id="t2iStyle" title="이미지 스타일 프리셋">
+                            <option value="realistic-cinematic" selected>🎬 실사 시네마틱 (Cinematic)</option>
+                            <option value="anime-webtoon">🎨 애니메이션/웹툰 (Anime/Webtoon)</option>
+                            <option value="3d-pixar-disney">✨ 3D 픽사/디즈니 (3D Animation)</option>
+                            <option value="cyberpunk">🌆 사이버펑크 (Cyberpunk)</option>
+                            <option value="watercolor">🖌️ 수채화 아트 (Watercolor)</option>
+                            <option value="retro-film-90s">📼 90s 레트로 필름 (Retro Film)</option>
+                            <option value="pen-ink-sketch">✒️ 펜&잉크 스케치 (Pen & Ink)</option>
+                            <option value="fantasy-concept">🏰 판타지 컨셉아트 (Fantasy Concept)</option>
+                            <option value="space-scifi">🚀 우주&SF (Space & Sci-Fi)</option>
+                            <option value="minimal-vector">📐 미니멀 벡터 (Minimal Vector)</option>
+                            <option value="claymation-art">🧸 점토 아트 (Claymation)</option>
+                            <option value="whiteboard-animation">📋 화이트보드 애니메이션</option>
+                        </select>
+                    </div>
+
+                    <div class="ai-settings-row">
+                        <select id="t2iEngine" title="이미지 생성 엔진">
+                            <option value="comfyui" selected>⚙️ ComfyUI (로컬 AI 이미지 생성)</option>
+                            <option value="local-sd">⚡ Local SD (Apple MPS GPU 로컬)</option>
+                            <option value="pollinations">🌸 Pollinations Flux (무료/고화질)</option>
+                            <option value="gemini">🌟 Gemini / Imagen</option>
+                            <option value="stability">💎 Stability AI SD3.5</option>
+                        </select>
+                        <select id="t2iAspect" title="화면 비율">
+                            <option value="16:9" selected>16:9 (유튜브 가로)</option>
+                            <option value="9:16">9:16 (쇼츠 세로)</option>
+                            <option value="1:1">1:1 (정사각형)</option>
+                        </select>
+                    </div>
+
+                    <button class="btn btn-primary" onclick="generateAiImageFromText()" id="t2iGenerateBtn" style="width: 100%; margin-top: 10px; margin-bottom: 12px; padding: 12px; background: linear-gradient(135deg, #10b981, #059669); font-weight: bold; border: none; border-radius: 8px; color: white; cursor: pointer; font-size: 13px;">
+                        🎨 AI 이미지 생성하여 타임라인에 추가
+                    </button>
+                </div>
+
                 <!-- 텍스트→영상 모드 -->
-                <div class="ai-mode-content active" id="text2videoMode">
+                <div class="ai-mode-content" id="text2videoMode">
                     <textarea class="prompt-input" id="t2vPrompt" placeholder="영상으로 생성할 장면을 설명하세요...&#10;예: A serene sunset over the ocean with gentle waves, cinematic, 4K"></textarea>
 
                     <div class="ai-settings-row">
@@ -965,11 +1011,13 @@
                     </p>
                 </div>
 
-                <!-- WanGP 직접 열기 버튼 -->
+                <!-- 백엔드 직접 열기 버튼 -->
                 <div id="wangpDirectAccess" style="margin-bottom: 15px;">
-                    <button onclick="openWanGP()" style="width: 100%; padding: 10px; background: linear-gradient(135deg, #667eea, #764ba2); border: none; border-radius: 8px; color: white; font-size: 13px; cursor: pointer;">
-                        🖥️ WanGP 직접 열기 (Desktop GPU)
-                    </button>
+                    <a id="directAccessLink" href="http://127.0.0.1:8188" target="_blank" rel="noopener noreferrer" style="text-decoration: none; display: block;">
+                        <button id="directAccessBtn" type="button" style="width: 100%; padding: 10px; background: linear-gradient(135deg, #3b82f6, #1d4ed8); border: none; border-radius: 8px; color: white; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                            ⚙️ ComfyUI 열기 (로컬)
+                        </button>
+                    </a>
                 </div>
 
                 <button class="btn btn-ai" onclick="generateAiVideo()" id="aiGenerateBtn">
@@ -1058,10 +1106,13 @@
         let images = [];
         let selectedIndex = -1;
         let serverOnline = false;
+        let phospheneOnline = false;
         let comfyuiOnline = false;
         let wangpOnline = false;
-        let currentAiBackend = 'wangp'; // 'wangp' or 'comfyui'
+        let grokOnline = false;
+        let currentAiBackend = 'phosphene'; // 'phosphene', 'wangp', 'comfyui', 'grok'
         let wangpUrl = '';
+        let phospheneUrl = 'http://127.0.0.1:8198';
         let lastRenderedVideoUrl = null;
         let currentStep = 1;
         let currentAiMode = 'text2video';
@@ -1082,7 +1133,7 @@
         }
 
         // 서버 상태 확인
-        async function checkServer() {
+        async function checkServer(showErrorToast = false) {
             try {
                 const response = await fetch('http://localhost:8766/health');
                 const data = await response.json();
@@ -1097,7 +1148,9 @@
                 serverOnline = false;
                 document.getElementById('statusDot').classList.remove('online');
                 document.getElementById('statusText').textContent = '서버 오프라인';
-                showToast('❌ Remotion 서버를 시작하세요: cd remotion && npm start', 5000);
+                if (showErrorToast) {
+                    showToast('❌ Remotion 서버를 시작하세요: cd remotion && npm start', 5000);
+                }
             }
         }
 
@@ -1256,7 +1309,7 @@
                         setTimeout(async () => {
                             await checkCurrentBackend();
 
-                            const isOnline = currentAiBackend === 'wangp' ? wangpOnline : comfyuiOnline;
+                            const isOnline = isCurrentBackendOnline();
                             if (isOnline) {
                                 if (document.getElementById('autoAiGenerate').checked) {
                                     generateAiVideo();
@@ -1264,7 +1317,7 @@
                                     showAiPromptModal();
                                 }
                             } else {
-                                const backendName = currentAiBackend === 'wangp' ? 'WanGP' : 'ComfyUI';
+                                const backendName = getCurrentBackendName();
                                 showToast(`💡 AI 영상 생성을 위해 ${backendName}를 시작해주세요`);
                                 document.getElementById('aiConnectionStatus').scrollIntoView({ behavior: 'smooth', block: 'center' });
                             }
@@ -1566,33 +1619,144 @@
             showToast('💾 프로젝트 저장됨');
         }
 
+        // AI 백엔드 상태 확인 헬퍼
+        function isCurrentBackendOnline() {
+            if (currentAiBackend === 'phosphene') return phospheneOnline;
+            if (currentAiBackend === 'wangp') return wangpOnline;
+            if (currentAiBackend === 'comfyui') return comfyuiOnline;
+            if (currentAiBackend === 'grok') return grokOnline;
+            return false;
+        }
+
+        function getCurrentBackendName() {
+            if (currentAiBackend === 'phosphene') return 'Phosphene (Apple Silicon)';
+            if (currentAiBackend === 'wangp') return 'WanGP';
+            if (currentAiBackend === 'comfyui') return 'ComfyUI';
+            if (currentAiBackend === 'grok') return 'Grok Video';
+            return currentAiBackend;
+        }
+
         // AI 백엔드 전환
         function switchAiBackend(backend) {
             currentAiBackend = backend;
-            const wangpAccess = document.getElementById('wangpDirectAccess');
-            if (backend === 'wangp') {
-                wangpAccess.style.display = 'block';
+            const backendSelect = document.getElementById('aiBackend');
+            if (backendSelect && backendSelect.value !== backend) {
+                backendSelect.value = backend;
+            }
+            const directAccessWrap = document.getElementById('wangpDirectAccess');
+            const directBtn = document.getElementById('directAccessBtn');
+            const directLink = document.getElementById('directAccessLink');
+
+            if (backend === 'phosphene') {
+                directAccessWrap.style.display = 'block';
+                const targetUrl = phospheneUrl || 'http://127.0.0.1:8198';
+                if (directLink) directLink.href = targetUrl;
+                directBtn.innerHTML = '🎬 Phosphene Web UI 열기 (Pinokio)';
+                directBtn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+            } else if (backend === 'wangp') {
+                directAccessWrap.style.display = 'block';
+                const targetUrl = wangpUrl || 'http://100.78.58.105:7860';
+                if (directLink) directLink.href = targetUrl;
+                directBtn.innerHTML = '🖥️ WanGP 직접 열기 (Desktop GPU)';
+                directBtn.style.background = 'linear-gradient(135deg, #667eea, #764ba2)';
+            } else if (backend === 'comfyui') {
+                directAccessWrap.style.display = 'block';
+                if (directLink) directLink.href = 'http://127.0.0.1:8188';
+                directBtn.innerHTML = '⚙️ ComfyUI 열기 (로컬)';
+                directBtn.style.background = 'linear-gradient(135deg, #3b82f6, #1d4ed8)';
             } else {
-                wangpAccess.style.display = 'none';
+                directAccessWrap.style.display = 'none';
             }
             checkCurrentBackend();
         }
 
+        // 백엔드 직접 열기 (폴백 핸들러)
+        function openDirectBackend() {
+            let targetUrl = 'http://127.0.0.1:8188';
+            if (currentAiBackend === 'phosphene') {
+                targetUrl = phospheneUrl || 'http://127.0.0.1:8198';
+            } else if (currentAiBackend === 'wangp') {
+                targetUrl = wangpUrl || 'http://100.78.58.105:7860';
+            } else if (currentAiBackend === 'comfyui') {
+                targetUrl = 'http://127.0.0.1:8188';
+            }
+            window.open(targetUrl, '_blank');
+        }
+
+        // WanGP 직접 열기 (호환성 유지)
+        function openWanGP() {
+            openDirectBackend();
+        }
+
         // 현재 백엔드 연결 확인
         async function checkCurrentBackend() {
-            if (currentAiBackend === 'wangp') {
+            if (currentAiBackend === 'phosphene') {
+                await checkPhosphene();
+            } else if (currentAiBackend === 'wangp') {
                 await checkWanGP();
-            } else {
+            } else if (currentAiBackend === 'comfyui') {
                 await checkComfyUI();
+            } else if (currentAiBackend === 'grok') {
+                await checkGrok();
             }
         }
 
-        // WanGP 직접 열기
-        function openWanGP() {
-            if (wangpUrl) {
-                window.open(wangpUrl, '_blank');
-            } else {
-                window.open('http://100.78.58.105:7860', '_blank');
+        // 전체 백엔드 자동 감지
+        async function autoDetectBackend() {
+            await Promise.allSettled([
+                checkPhosphene(),
+                checkWanGP(),
+                checkComfyUI(),
+                checkGrok()
+            ]);
+            if (!isCurrentBackendOnline()) {
+                if (phospheneOnline) {
+                    switchAiBackend('phosphene');
+                } else if (wangpOnline) {
+                    switchAiBackend('wangp');
+                } else if (comfyuiOnline) {
+                    switchAiBackend('comfyui');
+                } else if (grokOnline) {
+                    switchAiBackend('grok');
+                }
+            }
+        }
+
+        // Phosphene (Apple Silicon Pinokio MLX LTX-2) 서버 상태 확인
+        async function checkPhosphene() {
+            const statusPanel = document.getElementById('aiConnectionStatus');
+            const statusText = document.getElementById('aiConnectionText');
+            const urlDisplay = document.getElementById('aiUrlDisplay');
+            const generateBtn = document.getElementById('aiGenerateBtn');
+
+            try {
+                const response = await fetch('/api/phosphene/health');
+                const data = await response.json();
+                phospheneUrl = data.url || 'http://127.0.0.1:8198';
+
+                if (data.ok === true) {
+                    phospheneOnline = true;
+                    if (currentAiBackend === 'phosphene') {
+                        statusPanel.style.background = 'rgba(40,167,69,0.2)';
+                        statusPanel.style.borderColor = 'rgba(40,167,69,0.5)';
+                        statusText.innerHTML = '<span style="color: #28a745;">✅ Phosphene 연결됨</span> <span style="font-size: 11px; color: rgba(255,255,255,0.6);">- 로컬 Apple Silicon LTX-2 영상 생성 가능</span>';
+                        urlDisplay.textContent = phospheneUrl + ' (Pinokio MLX)';
+                        generateBtn.disabled = false;
+                        generateBtn.style.opacity = '1';
+                    }
+                } else {
+                    throw new Error('Phosphene not ready');
+                }
+            } catch (error) {
+                phospheneOnline = false;
+                if (currentAiBackend === 'phosphene') {
+                    statusPanel.style.background = 'rgba(220,53,69,0.2)';
+                    statusPanel.style.borderColor = 'rgba(220,53,69,0.5)';
+                    statusText.textContent = '⚠️ Phosphene 서버가 연결되지 않음';
+                    urlDisplay.textContent = 'Pinokio에서 Phosphene 실행 필요 (포트 8198)';
+                    generateBtn.disabled = true;
+                    generateBtn.style.opacity = '0.5';
+                }
             }
         }
 
@@ -1610,23 +1774,27 @@
 
                 if (data.ok === true) {
                     wangpOnline = true;
-                    statusPanel.style.background = 'rgba(40,167,69,0.2)';
-                    statusPanel.style.borderColor = 'rgba(40,167,69,0.5)';
-                    statusText.innerHTML = '<span style="color: #28a745;">✅ WanGP 연결됨</span> <span style="font-size: 11px; color: rgba(255,255,255,0.6);">- Desktop GPU 사용 가능</span>';
-                    urlDisplay.textContent = wangpUrl;
-                    generateBtn.disabled = false;
-                    generateBtn.style.opacity = '1';
+                    if (currentAiBackend === 'wangp') {
+                        statusPanel.style.background = 'rgba(40,167,69,0.2)';
+                        statusPanel.style.borderColor = 'rgba(40,167,69,0.5)';
+                        statusText.innerHTML = '<span style="color: #28a745;">✅ WanGP 연결됨</span> <span style="font-size: 11px; color: rgba(255,255,255,0.6);">- Desktop GPU 사용 가능</span>';
+                        urlDisplay.textContent = wangpUrl;
+                        generateBtn.disabled = false;
+                        generateBtn.style.opacity = '1';
+                    }
                 } else {
                     throw new Error('WanGP not ready');
                 }
             } catch (error) {
                 wangpOnline = false;
-                statusPanel.style.background = 'rgba(220,53,69,0.2)';
-                statusPanel.style.borderColor = 'rgba(220,53,69,0.5)';
-                statusText.textContent = '⚠️ WanGP 서버가 연결되지 않음';
-                urlDisplay.textContent = 'Desktop에서 Pinokio 실행 필요';
-                generateBtn.disabled = true;
-                generateBtn.style.opacity = '0.5';
+                if (currentAiBackend === 'wangp') {
+                    statusPanel.style.background = 'rgba(220,53,69,0.2)';
+                    statusPanel.style.borderColor = 'rgba(220,53,69,0.5)';
+                    statusText.textContent = '⚠️ WanGP 서버가 연결되지 않음';
+                    urlDisplay.textContent = 'Desktop에서 Pinokio 실행 필요';
+                    generateBtn.disabled = true;
+                    generateBtn.style.opacity = '0.5';
+                }
             }
         }
 
@@ -1644,40 +1812,77 @@
 
                 if (data.ok === true) {
                     comfyuiOnline = true;
-                    statusPanel.style.background = 'rgba(40,167,69,0.2)';
-                    statusPanel.style.borderColor = 'rgba(40,167,69,0.5)';
-                    statusText.innerHTML = '<span style="color: #28a745;">✅ ComfyUI 연결됨</span> <span style="font-size: 11px; color: rgba(255,255,255,0.6);">- 로컬 AI 영상 생성 가능</span>';
-                    urlDisplay.textContent = comfyUrl;
-                    generateBtn.disabled = false;
-                    generateBtn.style.opacity = '1';
+                    if (currentAiBackend === 'comfyui') {
+                        statusPanel.style.background = 'rgba(40,167,69,0.2)';
+                        statusPanel.style.borderColor = 'rgba(40,167,69,0.5)';
+                        statusText.innerHTML = '<span style="color: #28a745;">✅ ComfyUI 연결됨</span> <span style="font-size: 11px; color: rgba(255,255,255,0.6);">- 로컬 AI 영상 생성 가능</span>';
+                        urlDisplay.textContent = comfyUrl;
+                        generateBtn.disabled = false;
+                        generateBtn.style.opacity = '1';
+                    }
                 } else {
                     throw new Error('ComfyUI not ready');
                 }
             } catch (error) {
                 comfyuiOnline = false;
-                statusPanel.style.background = 'rgba(220,53,69,0.2)';
-                statusPanel.style.borderColor = 'rgba(220,53,69,0.5)';
-                statusText.textContent = '⚠️ ComfyUI 서버가 연결되지 않음';
-                urlDisplay.textContent = '로컬 ComfyUI 실행 필요';
-                generateBtn.disabled = true;
-                generateBtn.style.opacity = '0.5';
+                if (currentAiBackend === 'comfyui') {
+                    statusPanel.style.background = 'rgba(220,53,69,0.2)';
+                    statusPanel.style.borderColor = 'rgba(220,53,69,0.5)';
+                    statusText.textContent = '⚠️ ComfyUI 서버가 연결되지 않음';
+                    urlDisplay.textContent = '로컬 ComfyUI 실행 필요';
+                    generateBtn.disabled = true;
+                    generateBtn.style.opacity = '0.5';
+                }
+            }
+        }
+
+        // Grok Video 서버 상태 확인
+        async function checkGrok() {
+            const statusPanel = document.getElementById('aiConnectionStatus');
+            const statusText = document.getElementById('aiConnectionText');
+            const urlDisplay = document.getElementById('aiUrlDisplay');
+            const generateBtn = document.getElementById('aiGenerateBtn');
+
+            try {
+                const response = await fetch('/api/config');
+                const data = await response.json();
+                if (data.XAI_API_KEY && data.XAI_API_KEY.trim()) {
+                    grokOnline = true;
+                    if (currentAiBackend === 'grok') {
+                        statusPanel.style.background = 'rgba(40,167,69,0.2)';
+                        statusPanel.style.borderColor = 'rgba(40,167,69,0.5)';
+                        statusText.innerHTML = '<span style="color: #28a745;">✅ Grok Video 연결됨</span> <span style="font-size: 11px; color: rgba(255,255,255,0.6);">- xAI Imagine Video API</span>';
+                        urlDisplay.textContent = 'xAI Grok Video API';
+                        generateBtn.disabled = false;
+                        generateBtn.style.opacity = '1';
+                    }
+                } else {
+                    throw new Error('XAI_API_KEY not set');
+                }
+            } catch (error) {
+                grokOnline = false;
+                if (currentAiBackend === 'grok') {
+                    statusPanel.style.background = 'rgba(220,53,69,0.2)';
+                    statusPanel.style.borderColor = 'rgba(220,53,69,0.5)';
+                    statusText.textContent = '⚠️ Grok API 키가 설정되지 않음';
+                    urlDisplay.textContent = '설정에서 XAI_API_KEY 입력 필요';
+                    generateBtn.disabled = true;
+                    generateBtn.style.opacity = '0.5';
+                }
             }
         }
 
         // ComfyUI 시작 도우미
         function startComfyUI() {
-            // 클립보드에 명령어 복사
-            const command = 'cd /Users/sharkey/Desktop/ComfyUI && python main.py';
+            const command = '/Users/david/ComfyUI/venv/bin/python /Users/david/ComfyUI/main.py --listen 127.0.0.1 --port 8188';
             navigator.clipboard.writeText(command).then(() => {
                 showToast('📋 ComfyUI 시작 명령어가 클립보드에 복사되었습니다!');
             }).catch(() => {
                 showToast('터미널에서 실행: ' + command);
             });
 
-            // 서버 연결 재시도 시작
             showToast('🔄 ComfyUI 연결 대기 중... (터미널에서 명령어 실행 후 기다려주세요)');
 
-            // 연결 확인 주기를 짧게 설정
             let attempts = 0;
             const checkInterval = setInterval(async () => {
                 attempts++;
@@ -1685,26 +1890,42 @@
                 if (comfyuiOnline) {
                     clearInterval(checkInterval);
                     showToast('✅ ComfyUI 연결 성공!');
-                } else if (attempts > 60) { // 60초 후 중단
+                } else if (attempts > 60) {
                     clearInterval(checkInterval);
                 }
             }, 1000);
         }
 
-        // AI 모드 전환
+        // 12종 이미지 스타일 프리셋 키워드
+        const IMAGE_STYLE_MODIFIERS = {
+            'realistic-cinematic': 'cinematic photography, ultra-realistic, shot on 35mm lens, dramatic cinematic lighting, photorealistic, 8k resolution, highly detailed texture',
+            'anime-webtoon': 'vibrant Japanese anime style, clean crisp line art, beautiful cel shading, Makoto Shinkai aesthetic, rich colorful background, masterpiece anime visual',
+            '3d-pixar-disney': 'Pixar Disney 3D animation style, expressive character, soft volumetric studio lighting, smooth 3D render, octane render 8k, whimsical and charming',
+            'cyberpunk': 'cyberpunk sci-fi aesthetic, glowing neon lights in deep indigo and electric cyan, futuristic urban cityscape, volumetric fog, high tech atmosphere, 8k digital painting',
+            'watercolor': 'delicate artistic watercolor painting, soft translucent color washes, expressive brushstrokes, visible paper texture, pastel tones, elegant masterpiece illustration',
+            'retro-film-90s': 'vintage 1990s 35mm film photography, authentic film grain, slight chromatic aberration, nostalgic color palette, analog aesthetic, raw candid shot',
+            'pen-ink-sketch': 'intricate pen and ink crosshatching illustration, monochrome graphic novel style, precise detailed line work, architectural engraving style',
+            'fantasy-concept': 'epic fantasy concept art, mystical magical atmosphere, majestic grand environment, digital painting trending on ArtStation, highly detailed 8k',
+            'space-scifi': 'breathtaking space sci-fi cosmos, cosmic nebulae, glittering starfields, futuristic interstellar exploration, cinematic galactic lighting, 8k wallpaper',
+            'minimal-vector': 'clean modern minimalist vector illustration, bold geometric shapes, limited sophisticated color palette, flat design, elegant graphic artwork',
+            'claymation-art': 'charming handcrafted claymation style, tactile plasticine clay texture, subtle fingerprint details, soft studio lighting, stop-motion animation look',
+            'whiteboard-animation': 'clean whiteboard marker drawing, crisp black outline sketches on pure white background, educational visual infographic style, clear diagrammatic art'
+        };
+
+        // AI 모드 전환 (텍스트→이미지 / 텍스트→영상 / 이미지→영상)
         function switchAiMode(mode) {
             currentAiMode = mode;
             document.querySelectorAll('.ai-mode-tab').forEach(tab => tab.classList.remove('active'));
             document.querySelectorAll('.ai-mode-content').forEach(content => content.classList.remove('active'));
 
-            if (mode === 'text2video') {
-                document.querySelector('.ai-mode-tab:first-child').classList.add('active');
-                document.getElementById('text2videoMode').classList.add('active');
-            } else {
-                document.querySelector('.ai-mode-tab:last-child').classList.add('active');
-                document.getElementById('img2videoMode').classList.add('active');
+            const tabIndex = mode === 'text2image' ? 0 : (mode === 'text2video' ? 1 : 2);
+            const tabs = document.querySelectorAll('.ai-mode-tab');
+            if (tabs[tabIndex]) tabs[tabIndex].classList.add('active');
 
-                // 선택된 이미지 미리보기 업데이트
+            const contentEl = document.getElementById(mode + 'Mode');
+            if (contentEl) contentEl.classList.add('active');
+
+            if (mode === 'img2video') {
                 if (selectedIndex >= 0 && images[selectedIndex]) {
                     document.getElementById('selectedImagePreview').src = images[selectedIndex].src;
                     document.getElementById('aiPreviewImage').classList.add('show');
@@ -1712,11 +1933,219 @@
             }
         }
 
-        // AI 영상 생성 (WanGP 또는 ComfyUI Wan2.2)
+        // 🎨 텍스트→이미지 AI 생성 함수
+        async function generateAiImageFromText() {
+            const rawPrompt = document.getElementById('t2iPrompt').value.trim();
+            if (!rawPrompt) {
+                showToast('⚠️ 생성할 이미지 설명을 입력하세요');
+                document.getElementById('t2iPrompt').focus();
+                return;
+            }
+
+            const styleKey = document.getElementById('t2iStyle').value;
+            const engine = document.getElementById('t2iEngine').value;
+            const aspect = document.getElementById('t2iAspect').value;
+
+            let width = 1280, height = 720;
+            if (aspect === '9:16') {
+                width = 720; height = 1280;
+            } else if (aspect === '1:1') {
+                width = 1024; height = 1024;
+            }
+
+            const styleModifier = IMAGE_STYLE_MODIFIERS[styleKey] || '';
+            const fullPrompt = styleModifier ? `${rawPrompt}, ${styleModifier}` : rawPrompt;
+
+            const genBtn = document.getElementById('t2iGenerateBtn');
+            const statusEl = document.getElementById('aiStatus');
+            const statusText = document.getElementById('aiStatusText');
+            const progressBar = document.getElementById('aiProgressBar');
+
+            const origBtnText = genBtn.textContent;
+            genBtn.disabled = true;
+            genBtn.textContent = '🎨 이미지 생성 중...';
+            statusEl.classList.add('show');
+            statusText.textContent = `🔄 AI 이미지 생성 중 (${engine})...`;
+            progressBar.style.width = '30%';
+
+            try {
+                let imgDataUrl = null;
+
+                if (engine === 'comfyui') {
+                    statusText.textContent = '⚙️ ComfyUI 로컬 서버 확인 중...';
+                    progressBar.style.width = '20%';
+
+                    // ComfyUI 서버 헬스체크
+                    try {
+                        const healthRes = await fetch('/api/comfyui/health');
+                        const healthData = await healthRes.json();
+                        if (!healthData.ok) {
+                            throw new Error('ComfyUI 서버가 실행 중이지 않습니다.');
+                        }
+                    } catch (e) {
+                        throw new Error('ComfyUI 서버(포트 8188)가 실행 중이지 않습니다. ComfyUI를 먼저 실행해주세요.');
+                    }
+
+                    statusText.textContent = '⚙️ ComfyUI 워크플로우 구성 중...';
+                    progressBar.style.width = '35%';
+
+                    // SD 1.5 최적 해상도 설정
+                    let sdWidth = 768, sdHeight = 448; // 16:9
+                    if (aspect === '9:16') {
+                        sdWidth = 448; sdHeight = 768;
+                    } else if (aspect === '1:1') {
+                        sdWidth = 512; sdHeight = 512;
+                    }
+
+                    const ckpt = await getComfyUICheckpoint();
+                    const workflow = createComfyUIT2IWorkflow(
+                        fullPrompt,
+                        'blurry, low quality, distorted, extra limbs, bad anatomy, ugly, watermark, text, signature, bad eyes',
+                        sdWidth,
+                        sdHeight,
+                        20,
+                        7.0,
+                        ckpt
+                    );
+
+                    statusText.textContent = '⚙️ ComfyUI 작업 큐 등록 중...';
+                    progressBar.style.width = '45%';
+
+                    const promptRes = await fetch('/api/proxy/comfyui/prompt', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ prompt: workflow })
+                    });
+
+                    if (!promptRes.ok) {
+                        const errData = await promptRes.json().catch(() => ({}));
+                        throw new Error(errData.error || `ComfyUI 큐 등록 실패 (${promptRes.status})`);
+                    }
+
+                    const promptData = await promptRes.json();
+                    const promptId = promptData.prompt_id;
+                    if (!promptId) {
+                        throw new Error('ComfyUI 작업 ID를 수신하지 못했습니다.');
+                    }
+
+                    statusText.textContent = `⏳ ComfyUI 이미지 렌더링 중 (ID: ${promptId.substring(0, 8)})...`;
+                    progressBar.style.width = '55%';
+
+                    imgDataUrl = await pollComfyUIImage(promptId, statusText, progressBar);
+
+                } else if (engine === 'local-sd') {
+                    statusText.textContent = '🎨 Local SD (Apple MPS GPU) 이미지 생성 중...';
+                    progressBar.style.width = '50%';
+
+                    const res = await fetch('/api/proxy/local-sd', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            prompt: fullPrompt,
+                            negative_prompt: 'blurry, low quality, distorted, watermark, text',
+                            width: aspect === '1:1' ? 512 : (aspect === '9:16' ? 512 : 768),
+                            height: aspect === '1:1' ? 512 : (aspect === '9:16' ? 768 : 512),
+                            steps: 4
+                        })
+                    });
+                    const data = await res.json();
+                    if (!res.ok || data.error) throw new Error(data.error || 'Local SD 생성 실패');
+                    const b64 = data.image || data.images?.[0];
+                    imgDataUrl = b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`;
+
+                } else if (engine === 'gemini') {
+                    statusText.textContent = '🌟 Gemini / Imagen 이미지 생성 중...';
+                    progressBar.style.width = '50%';
+
+                    const res = await fetch('/api/proxy/gemini-image', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            prompt: fullPrompt,
+                            width: width,
+                            height: height
+                        })
+                    });
+                    const data = await res.json();
+                    if (!res.ok || data.error) throw new Error(data.error || 'Gemini 이미지 생성 실패');
+                    const b64 = data.image || data.predictions?.[0]?.bytesBase64Encoded || data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+                    imgDataUrl = b64.startsWith('data:') ? b64 : `data:${data.mimeType || 'image/png'};base64,${b64}`;
+
+                } else if (engine === 'stability') {
+                    statusText.textContent = '💎 Stability AI 이미지 생성 중...';
+                    progressBar.style.width = '50%';
+
+                    const res = await fetch('/api/proxy/stability-image', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            prompt: fullPrompt,
+                            aspect_ratio: aspect
+                        })
+                    });
+                    const data = await res.json();
+                    if (!res.ok || data.error) throw new Error(data.error || 'Stability AI 이미지 생성 실패');
+                    const b64 = data.image || data.artifacts?.[0]?.base64;
+                    imgDataUrl = b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`;
+
+                } else {
+                    // Pollinations Flux
+                    statusText.textContent = '🌸 Pollinations Flux 고화질 생성 중...';
+                    progressBar.style.width = '50%';
+
+                    const res = await fetch('/api/proxy/pollinations-image', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            prompt: fullPrompt,
+                            width: width,
+                            height: height,
+                            model: 'flux'
+                        })
+                    });
+                    const data = await res.json();
+                    if (!res.ok || data.error) throw new Error(data.error || 'Pollinations 이미지 생성 실패');
+                    const b64 = data.image;
+                    imgDataUrl = b64.startsWith('data:') ? b64 : `data:image/png;base64,${b64}`;
+                }
+
+                if (!imgDataUrl) throw new Error('생성된 이미지 데이터를 수신하지 못했습니다.');
+
+                progressBar.style.width = '100%';
+                statusText.textContent = '✅ 이미지 생성 완료!';
+
+                // 타임라인 및 이미지 그리드에 추가
+                images.push({
+                    src: imgDataUrl,
+                    caption: rawPrompt.substring(0, 40),
+                    duration: parseInt(document.getElementById('imageDuration')?.value || '5'),
+                    filename: `ai_generated_${Date.now()}.png`
+                });
+
+                updateImageGrid();
+                updateTimeline();
+                updateWorkflowStep(2);
+                selectImage(images.length - 1);
+
+                showToast('✅ AI 이미지가 생성되어 타임라인에 추가되었습니다!');
+
+            } catch (err) {
+                console.error('이미지 생성 오류:', err);
+                showToast('❌ 이미지 생성 실패: ' + err.message);
+                statusText.textContent = '❌ 오류: ' + err.message;
+            } finally {
+                genBtn.disabled = false;
+                genBtn.textContent = origBtnText;
+                setTimeout(() => {
+                    statusEl.classList.remove('show');
+                }, 3000);
+            }
+        }
+
+        // AI 영상 생성 (Phosphene, WanGP, ComfyUI, Grok)
         async function generateAiVideo() {
-            const isOnline = currentAiBackend === 'wangp' ? wangpOnline : comfyuiOnline;
-            if (!isOnline) {
-                const backendName = currentAiBackend === 'wangp' ? 'WanGP' : 'ComfyUI';
+            if (!isCurrentBackendOnline()) {
+                const backendName = getCurrentBackendName();
                 showToast(`⚠️ ${backendName} 서버를 먼저 시작하세요`);
                 document.getElementById('aiConnectionStatus').scrollIntoView({ behavior: 'smooth', block: 'center' });
                 if (currentAiBackend === 'comfyui') {
@@ -1730,14 +2159,287 @@
                 return;
             }
 
-            // WanGP 백엔드 사용시
+            if (currentAiBackend === 'phosphene') {
+                await generatePhospheneVideoInEditor();
+                return;
+            }
+
             if (currentAiBackend === 'wangp') {
                 await generateWanGPVideo();
                 return;
             }
 
+            if (currentAiBackend === 'grok') {
+                await generateGrokVideoInEditor();
+                return;
+            }
+
             // ComfyUI 백엔드 사용시
             await generateComfyUIVideo();
+        }
+
+        // Phosphene 영상 생성 (로컬 MLX LTX-2)
+        async function generatePhospheneVideoInEditor() {
+            aiGenerating = true;
+            const statusEl = document.getElementById('aiStatus');
+            const statusText = document.getElementById('aiStatusText');
+            const progressBar = document.getElementById('aiProgressBar');
+
+            statusEl.classList.add('show');
+            statusText.textContent = '🔄 Phosphene 준비 중...';
+            progressBar.style.width = '10%';
+
+            try {
+                let prompt = '';
+                let uploadImagePath = '';
+
+                if (currentAiMode === 'text2video') {
+                    prompt = document.getElementById('t2vPrompt').value.trim();
+                    if (!prompt) {
+                        showToast('⚠️ 프롬프트를 입력하세요');
+                        aiGenerating = false;
+                        statusEl.classList.remove('show');
+                        return;
+                    }
+                } else {
+                    if (selectedIndex < 0 || !images[selectedIndex]) {
+                        showToast('⚠️ 먼저 이미지를 선택하세요');
+                        aiGenerating = false;
+                        statusEl.classList.remove('show');
+                        return;
+                    }
+                    prompt = document.getElementById('i2vPrompt').value.trim() || 'smooth cinematic camera movement, high resolution, 4k';
+                    const rawSrc = images[selectedIndex].src;
+                    const b64 = (rawSrc.split(',')[1] || rawSrc).trim();
+
+                    statusText.textContent = '📤 이미지 업로드 중...';
+                    progressBar.style.width = '25%';
+
+                    const upRes = await fetch('/api/phosphene/upload', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            image: b64,
+                            filename: `editor_scene_${selectedIndex + 1}_${Date.now()}.png`
+                        })
+                    });
+                    const upData = await upRes.json();
+                    if (!upRes.ok || !upData.path) {
+                        throw new Error(upData.error || '이미지 업로드에 실패했습니다.');
+                    }
+                    uploadImagePath = upData.path;
+                }
+
+                statusText.textContent = '🚀 Phosphene 영상 작업 큐 등록 중...';
+                progressBar.style.width = '40%';
+
+                const genPayload = {
+                    mode: currentAiMode === 'text2video' ? 't2v' : 'i2v',
+                    prompt: prompt,
+                    width: 1024,
+                    height: 576,
+                    frames: 121,
+                    quality: 'balanced',
+                    label: `에디터 영상 ${Date.now()}`
+                };
+                if (uploadImagePath) {
+                    genPayload.image = uploadImagePath;
+                }
+
+                const genRes = await fetch('/api/phosphene/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(genPayload)
+                });
+                const genData = await genRes.json();
+                const jobId = genData.id || genData.job_id;
+                if (!genRes.ok || !jobId) {
+                    throw new Error(genData.error || '영상 생성 작업 큐 등록에 실패했습니다.');
+                }
+
+                statusText.textContent = '⏳ Phosphene 영상 렌더링 중 (Apple Silicon MLX)...';
+                progressBar.style.width = '55%';
+
+                const terminal = new Set(['done', 'failed', 'cancelled', 'error']);
+                let finishedJob = null;
+
+                for (let poll = 0; poll < 180; poll++) {
+                    await new Promise(r => setTimeout(r, 4000));
+                    const raw = await fetch('/api/phosphene/status').then(r => r.text()).catch(() => '');
+                    let st;
+                    try {
+                        st = JSON.parse(raw.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, ' '));
+                    } catch (e) {
+                        continue;
+                    }
+
+                    const pools = [st.current ? [st.current] : [], st.queue || [], st.history || []];
+                    let found = null;
+                    for (const pool of pools) {
+                        for (const j of pool) {
+                            if (j && (j.id === jobId || j.job_id === jobId)) {
+                                found = j;
+                                break;
+                            }
+                        }
+                        if (found) break;
+                    }
+
+                    if (!found) {
+                        statusText.textContent = '⏳ 작업 대기 중...';
+                        continue;
+                    }
+
+                    const progLabel = found.progress?.phase_label || found.status || 'running';
+                    const progPercent = found.progress?.percent || 0;
+                    statusText.textContent = `⏳ 영상 렌더링 중 (${progLabel})...`;
+                    progressBar.style.width = `${Math.min(95, 55 + (progPercent * 0.4))}%`;
+
+                    if (terminal.has(found.status)) {
+                        finishedJob = found;
+                        break;
+                    }
+                }
+
+                if (!finishedJob) {
+                    throw new Error('렌더링 시간 초과. Phosphene 패널을 확인하세요.');
+                }
+                if (finishedJob.status !== 'done') {
+                    throw new Error(finishedJob.error || `생성 실패 (${finishedJob.status})`);
+                }
+
+                const outPath = finishedJob.output_path || finishedJob.raw_path;
+                if (!outPath) throw new Error('결과 영상 파일 경로를 찾을 수 없습니다.');
+
+                const videoUrl = `/api/phosphene/file?path=${encodeURIComponent(outPath)}`;
+                progressBar.style.width = '100%';
+                statusText.textContent = '✅ 영상 생성 완료!';
+
+                displayGeneratedVideo(videoUrl, `phosphene_video_${Date.now()}.mp4`);
+
+            } catch (error) {
+                console.error('Phosphene 영상 생성 오류:', error);
+                showToast('❌ 영상 생성 오류: ' + error.message);
+                statusText.textContent = '❌ 오류: ' + error.message;
+                progressBar.style.width = '0%';
+            } finally {
+                aiGenerating = false;
+                setTimeout(() => {
+                    statusEl.classList.remove('show');
+                }, 3000);
+            }
+        }
+
+        // Grok 영상 생성 (xAI Grok Imagine Video API)
+        async function generateGrokVideoInEditor() {
+            aiGenerating = true;
+            const statusEl = document.getElementById('aiStatus');
+            const statusText = document.getElementById('aiStatusText');
+            const progressBar = document.getElementById('aiProgressBar');
+
+            statusEl.classList.add('show');
+            statusText.textContent = '🔄 Grok Video 요청 중...';
+            progressBar.style.width = '15%';
+
+            try {
+                let prompt = '';
+                let imageUrl = null;
+
+                if (currentAiMode === 'text2video') {
+                    prompt = document.getElementById('t2vPrompt').value.trim();
+                    if (!prompt) {
+                        showToast('⚠️ 프롬프트를 입력하세요');
+                        aiGenerating = false;
+                        statusEl.classList.remove('show');
+                        return;
+                    }
+                } else {
+                    if (selectedIndex < 0 || !images[selectedIndex]) {
+                        showToast('⚠️ 먼저 이미지를 선택하세요');
+                        aiGenerating = false;
+                        statusEl.classList.remove('show');
+                        return;
+                    }
+                    prompt = document.getElementById('i2vPrompt').value.trim() || 'cinematic motion, 4k';
+                    const src = images[selectedIndex].src;
+                    if (src.startsWith('data:')) {
+                        statusText.textContent = '📤 이미지 업로드 중...';
+                        progressBar.style.width = '30%';
+                        const b64 = (src.split(',')[1] || '').trim();
+                        const upRes = await fetch('/api/proxy/imgbb-upload', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ image: b64 })
+                        });
+                        const upData = await upRes.json();
+                        if (upData.data && upData.data.url) {
+                            imageUrl = upData.data.url;
+                        }
+                    } else if (src.startsWith('http')) {
+                        imageUrl = src;
+                    }
+                }
+
+                statusText.textContent = '🚀 Grok 영상 생성 시작...';
+                progressBar.style.width = '45%';
+
+                const payload = {
+                    prompt: prompt,
+                    duration: 5,
+                    aspect_ratio: '16:9',
+                    resolution: '720p'
+                };
+                if (imageUrl) {
+                    payload.image_url = imageUrl;
+                }
+
+                const genRes = await fetch('/api/proxy/grok-video', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const genData = await genRes.json();
+                if (!genRes.ok || !genData.id) {
+                    throw new Error(genData.error?.message || genData.error || 'Grok 영상 생성 실패');
+                }
+
+                const reqId = genData.id;
+                statusText.textContent = '⏳ Grok 영상 렌더링 중...';
+                progressBar.style.width = '60%';
+
+                let videoUrl = null;
+                for (let i = 0; i < 60; i++) {
+                    await new Promise(r => setTimeout(r, 4000));
+                    const pollRes = await fetch(`/api/proxy/grok-video/${reqId}`);
+                    if (pollRes.ok) {
+                        const pollData = await pollRes.json();
+                        if (pollData.status === 'completed' && pollData.video?.url) {
+                            videoUrl = pollData.video.url;
+                            break;
+                        }
+                        if (pollData.status === 'failed' || pollData.status === 'error') {
+                            throw new Error(pollData.error || 'Grok 영상 생성 실패');
+                        }
+                    }
+                }
+
+                if (!videoUrl) throw new Error('Grok 영상 생성 시간 초과');
+
+                progressBar.style.width = '100%';
+                statusText.textContent = '✅ Grok 영상 생성 완료!';
+                displayGeneratedVideo(videoUrl, `grok_video_${Date.now()}.mp4`);
+
+            } catch (error) {
+                console.error('Grok 오류:', error);
+                showToast('❌ Grok 영상 생성 오류: ' + error.message);
+                statusText.textContent = '❌ 오류: ' + error.message;
+                progressBar.style.width = '0%';
+            } finally {
+                aiGenerating = false;
+                setTimeout(() => {
+                    statusEl.classList.remove('show');
+                }, 3000);
+            }
         }
 
         // WanGP 영상 생성 (Gradio API)
@@ -1808,6 +2510,137 @@
             } finally {
                 aiGenerating = false;
             }
+        }
+
+        // ── ComfyUI Text-to-Image (T2I) 지원 함수 ───────────────
+        // ComfyUI T2I 워크플로우 구성
+        function createComfyUIT2IWorkflow(prompt, negativePrompt, width, height, steps = 20, cfg = 7.0, ckptName = null) {
+            const checkpoint = ckptName || 'v1-5-pruned-emaonly.safetensors';
+            const seed = Math.floor(Math.random() * 1000000000);
+
+            return {
+                "4": {
+                    "class_type": "CheckpointLoaderSimple",
+                    "inputs": {
+                        "ckpt_name": checkpoint
+                    }
+                },
+                "5": {
+                    "class_type": "EmptyLatentImage",
+                    "inputs": {
+                        "width": width,
+                        "height": height,
+                        "batch_size": 1
+                    }
+                },
+                "6": {
+                    "class_type": "CLIPTextEncode",
+                    "inputs": {
+                        "text": prompt,
+                        "clip": ["4", 1]
+                    }
+                },
+                "7": {
+                    "class_type": "CLIPTextEncode",
+                    "inputs": {
+                        "text": negativePrompt || "blurry, low quality, distorted, extra limbs, bad anatomy, ugly, watermark, text, signature",
+                        "clip": ["4", 1]
+                    }
+                },
+                "3": {
+                    "class_type": "KSampler",
+                    "inputs": {
+                        "seed": seed,
+                        "steps": steps,
+                        "cfg": cfg,
+                        "sampler_name": "euler",
+                        "scheduler": "normal",
+                        "denoise": 1.0,
+                        "model": ["4", 0],
+                        "positive": ["6", 0],
+                        "negative": ["7", 0],
+                        "latent_image": ["5", 0]
+                    }
+                },
+                "8": {
+                    "class_type": "VAEDecode",
+                    "inputs": {
+                        "samples": ["3", 0],
+                        "vae": ["4", 2]
+                    }
+                },
+                "9": {
+                    "class_type": "SaveImage",
+                    "inputs": {
+                        "filename_prefix": "ComfyUI_T2I",
+                        "images": ["8", 0]
+                    }
+                }
+            };
+        }
+
+        // ComfyUI 사용 가능한 체크포인트 조회
+        async function getComfyUICheckpoint() {
+            try {
+                const res = await fetch('/api/proxy/comfyui/object_info/CheckpointLoaderSimple');
+                if (res.ok) {
+                    const data = await res.json();
+                    const list = data?.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0];
+                    if (Array.isArray(list) && list.length > 0) {
+                        return list[0];
+                    }
+                }
+            } catch (e) {
+                console.warn('ComfyUI 체크포인트 목록 조회 실패:', e);
+            }
+            return 'v1-5-pruned-emaonly.safetensors';
+        }
+
+        // ComfyUI 이미지 생성 진행 상황 폴링
+        async function pollComfyUIImage(promptId, statusText, progressBar) {
+            let attempts = 0;
+            const maxAttempts = 180; // 최대 3분
+
+            while (attempts < maxAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                attempts++;
+
+                try {
+                    const response = await fetch(`/api/proxy/comfyui/history?prompt_id=${promptId}`);
+                    if (!response.ok) continue;
+                    const history = await response.json();
+
+                    if (history[promptId]) {
+                        const outputs = history[promptId].outputs;
+                        for (const nodeId in outputs) {
+                            if (outputs[nodeId].images && outputs[nodeId].images.length > 0) {
+                                const imgInfo = outputs[nodeId].images[0];
+                                statusText.textContent = '✅ ComfyUI 이미지 수신 중...';
+                                progressBar.style.width = '95%';
+
+                                const viewUrl = `/api/proxy/comfyui/view?filename=${encodeURIComponent(imgInfo.filename)}&subfolder=${encodeURIComponent(imgInfo.subfolder || '')}&type=${encodeURIComponent(imgInfo.type || 'output')}`;
+                                const viewRes = await fetch(viewUrl);
+                                if (!viewRes.ok) throw new Error('ComfyUI 생성 이미지 다운로드 실패');
+                                const blob = await viewRes.blob();
+
+                                return new Promise((resolve, reject) => {
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => resolve(reader.result);
+                                    reader.onerror = reject;
+                                    reader.readAsDataURL(blob);
+                                });
+                            }
+                        }
+                    }
+
+                    const pct = Math.min(90, 20 + Math.floor(attempts * 2));
+                    progressBar.style.width = `${pct}%`;
+                    statusText.textContent = `⏳ ComfyUI 로컬 이미지 렌더링 중... (${attempts}초)`;
+                } catch (e) {
+                    console.warn('ComfyUI polling error:', e);
+                }
+            }
+            throw new Error('ComfyUI 이미지 생성 대기 시간 초과 (3분)');
         }
 
         // ComfyUI 영상 생성
@@ -2130,19 +2963,26 @@
 
             const blob = await response.blob();
             const videoUrl = URL.createObjectURL(blob);
+            displayGeneratedVideo(videoUrl, filename);
+        }
+
+        // 공통 생성 영상 플레이어 표시 및 다운로드
+        function displayGeneratedVideo(videoUrl, filename = 'ai_video.mp4') {
             lastRenderedVideoUrl = videoUrl;
 
-            // 다운로드
-            const a = document.createElement('a');
-            a.href = videoUrl;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+            try {
+                const a = document.createElement('a');
+                a.href = videoUrl;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            } catch (e) {
+                console.warn('자동 다운로드 실패:', e);
+            }
 
-            // 프리뷰에 표시
             const player = document.getElementById('previewPlayer');
-            player.innerHTML = `<video src="${videoUrl}" controls autoplay style="width: 100%; height: 100%;"></video>`;
+            player.innerHTML = `<video src="${videoUrl}" controls autoplay style="width: 100%; height: 100%; border-radius: 8px;"></video>`;
 
             showToast('✅ AI 영상이 생성되었습니다!');
             updateWorkflowStep(4);
@@ -2150,10 +2990,10 @@
         }
 
         // 초기화
-        checkServer();
-        checkCurrentBackend();
-        setInterval(checkServer, 5000);
-        setInterval(checkCurrentBackend, 5000);
+        checkServer(false);
+        autoDetectBackend();
+        setInterval(() => checkServer(false), 8000);
+        setInterval(checkCurrentBackend, 6000);
 
         // 부모 창과 통신
         if (window.opener) {
@@ -2184,7 +3024,7 @@
                     setTimeout(async () => {
                         await checkCurrentBackend();
 
-                        const isOnline = currentAiBackend === 'wangp' ? wangpOnline : comfyuiOnline;
+                        const isOnline = isCurrentBackendOnline();
                         if (isOnline) {
                             // 자동 생성 체크박스가 켜져 있으면 바로 생성
                             if (document.getElementById('autoAiGenerate').checked) {
@@ -2194,7 +3034,7 @@
                             }
                         } else {
                             // AI 백엔드가 연결되지 않은 경우 안내
-                            const backendName = currentAiBackend === 'wangp' ? 'WanGP' : 'ComfyUI';
+                            const backendName = getCurrentBackendName();
                             showToast(`💡 AI 영상 생성을 위해 ${backendName}를 시작해주세요`);
                             document.getElementById('aiConnectionStatus').scrollIntoView({ behavior: 'smooth', block: 'center' });
                         }
